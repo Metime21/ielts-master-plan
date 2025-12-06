@@ -1,20 +1,16 @@
-// /api/gemini.ts - 最终修复版本：解决所有 SyntaxError
-import { GoogleGenAI } from "@google/genai"
-import type { VercelRequest, VercelResponse } from '@vercel/node'
-// 获取 Key，ai 变量会在 handler 内部创建
+// /api/gemini.js - 最终纯 JavaScript 稳定版
+const { GoogleGenAI } = require("@google/genai")
+// 获取 Key
 const apiKey = process.env.GEMINI_API_KEY
-
-
-
-
-export default async function handler(req: VercelRequest, res: VercelResponse) {
-// 1. 检查 Key 是否存在（关键：直接在 handler 内部返回错误）
+// 唯一导出的函数
+module.exports = async function handler(req, res) {
+// 1. 检查 Key 是否存在
 if (!apiKey) {
 return res.status(500).json({
 error: "Configuration Error: GEMINI_API_KEY is not set in Vercel Environment Variables."
 })
 }
-// 2. 初始化 AI 客户端（确保 Key 存在时才创建）
+// 2. 初始化 AI 客户端
 const ai = new GoogleGenAI({ apiKey })
 // 3. 检查请求方法
 if (req.method !== 'POST') {
