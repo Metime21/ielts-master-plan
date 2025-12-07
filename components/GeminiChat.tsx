@@ -1,3 +1,5 @@
+// src/components/GeminiChat.tsx
+
 import React, { useState, useRef, useEffect } from 'react';
 import { Send, Sparkles, X } from 'lucide-react';
 import { ChatMessage } from '../types';
@@ -45,10 +47,11 @@ const GeminiChat: React.FC = () => {
       const systemInstruction = "You are an expert IELTS tutor. Provide concise, high-scoring, and actionable advice.";
       const responseText = await generateGeminiResponse(userMsg.text, systemInstruction);
 
+      // ✅ 即使返回的是错误消息，也显示出来（不再沉默）
       const botMsg: ChatMessage = {
         id: (Date.now() + 1).toString(),
         role: 'model',
-        text: responseText,
+        text: responseText, // ← 直接显示，无论成功失败
         timestamp: Date.now()
       };
       setMessages(prev => [...prev, botMsg]);
