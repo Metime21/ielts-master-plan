@@ -1,20 +1,4 @@
 {
-  // 1. 强制构建 /api/index.ts 为 Node.js Serverless Function
-  "builds": [
-    {
-      "src": "api/index.ts",
-      "use": "@vercel/node"
-    }
-  ],
-  // 2. 设置函数的运行时和超时
-  "functions": {
-    "api/index.ts": {
-      "runtime": "@vercel/node@18.x", // 使用稳定的 Node 18
-      "maxDuration": 60
-    }
-  },
-  // 3. 强制路由：将前端调用 /api/gemini 路由到 /api/index.ts
- {
   "functions": {
     "api/gemini.ts": {
       "runtime": "@vercel/node@18.x",
