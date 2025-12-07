@@ -21,9 +21,20 @@ import {
   Link as LinkIcon,
 } from 'lucide-react';
 
-// --- API Helper Function ---
+// --- API Helper Function (Updated Prompt) ---
 const translateAndDefine = async (text: string): Promise<string> => {
-  const prompt = `Provide a concise dictionary definition, part of speech, and a simple Chinese translation for the English word or phrase: "${text}". Format the response clearly using bullet points or paragraphs.`;
+  const prompt = `You are a professional English dictionary. For the word or phrase "${text}", provide:
+1. Part of speech (e.g., noun, verb, etc.)
+2. A clear, concise English definition
+3. A simple and accurate Chinese translation
+
+Format your response EXACTLY as follows (do not add extra text):
+
+**Part of Speech:** [pos]  
+**Definition:** [definition]  
+**Chinese:** [translation]
+
+If the input is invalid or unclear, respond with: "Invalid input. Please enter a valid English word or phrase."`;
 
   try {
     const fetchResponse = await fetch('/api/gemini', {
@@ -49,7 +60,7 @@ const translateAndDefine = async (text: string): Promise<string> => {
   }
 };
 
-// --- Sub-components ---
+// --- Sub-components (Unchanged) ---
 
 interface FileManagerProps {
   title: string;
@@ -336,7 +347,7 @@ const ResourceCard: React.FC<ResourceCardProps> = ({ title, items: initialItems,
   );
 };
 
-// --- Tools Components ---
+// --- NEW DictionaryWidget (Rewritten with New Prompt + UI) ---
 
 const DictionaryWidget: React.FC = () => {
   const [query, setQuery] = useState('');
@@ -391,21 +402,39 @@ const DictionaryWidget: React.FC = () => {
     }
   };
 
+  // Parse result for structured display
+  const parseResult = (raw: string) => {
+    const lines = raw.split('\n').filter(Boolean);
+    const parsed: Record<string, string> = {};
+    lines.forEach((line) => {
+      if (line.startsWith('**Part of Speech:**')) {
+        parsed.pos = line.replace('**Part of Speech:**', '').trim();
+      } else if (line.startsWith('**Definition:**')) {
+        parsed.definition = line.replace('**Definition:**', '').trim();
+      } else if (line.startsWith('**Chinese:**')) {
+        parsed.chinese = line.replace('**Chinese:**', '').trim();
+      }
+    });
+    return parsed;
+  };
+
+  const parsedResult = result ? parseResult(result) : null;
+
   return (
     <div className="bg-white rounded-3xl p-5 shadow-sm border border-slate-100 h-fit" ref={historyRef}>
-      <div className="flex items-center justify-between mb-3">
-        <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
-          <Search size={14} /> Dictionary
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-xs font-bold text-slate-500 uppercase tracking-widest flex items-center gap-2">
+          <Search size={14} /> Smart Dictionary
         </h3>
         <button
           onClick={openGoogleTranslate}
-          className="text-[10px] bg-blue-50 text-blue-600 border border-blue-100 px-2 py-1 rounded-full hover:bg-blue-100 transition-colors"
+          className="text-[10px] bg-blue-50 text-blue-600 border border-blue-100 px-2 py-1 rounded-full hover:bg-blue-100 transition-colors flex items-center gap-1"
         >
-          <Globe size={10} className="inline mr-1" /> Google
+          <Globe size={10} /> Google
         </button>
       </div>
 
-      <div className="relative mb-3">
+      <div className="relative mb-4">
         <div className="flex gap-2">
           <div className="relative flex-1">
             <input
@@ -414,22 +443,22 @@ const DictionaryWidget: React.FC = () => {
               onChange={(e) => setQuery(e.target.value)}
               onFocus={() => setShowHistory(true)}
               onKeyDown={(e) => e.key === 'Enter' && handleSearchClick()}
-              placeholder="Search..."
-              className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 focus:outline-none focus:ring-2 focus:ring-slate-300 text-sm"
+              placeholder="Enter an English word or phrase..."
+              className="w-full px-4 py-2.5 rounded-xl bg-slate-50 border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-300 text-sm font-medium"
             />
             {showHistory && history.length > 0 && (
-              <div className="absolute top-full left-0 right-0 mt-2 bg-white border border-slate-200 rounded-xl shadow-xl z-20 overflow-hidden">
+              <div className="absolute top-full left-0 right-0 mt-2 bg-white border border-slate-200 rounded-xl shadow-lg z-20 overflow-hidden">
                 <div className="text-[10px] font-bold text-slate-400 px-3 py-2 bg-slate-50 border-b border-slate-100 flex items-center gap-1">
-                  <History size={10} /> RECENT
+                  <History size={10} /> RECENT SEARCHES
                 </div>
                 <ul>
                   {history.map((item, idx) => (
                     <li
                       key={idx}
                       onClick={() => handleHistorySelect(item)}
-                      className="px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 cursor-pointer border-b border-slate-50 last:border-none flex justify-between items-center group"
+                      className="px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 cursor-pointer border-b border-slate-50 last:border-none flex justify-between items-center group"
                     >
-                      {item} <ExternalLink size={12} className="opacity-0 group-hover:opacity-50" />
+                      {item} <ExternalLink size={12} className="opacity-0 group-hover:opacity-60" />
                     </li>
                   ))}
                 </ul>
@@ -438,33 +467,69 @@ const DictionaryWidget: React.FC = () => {
           </div>
           <button
             onClick={handleSearchClick}
-            disabled={loading}
-            className="bg-slate-800 hover:bg-slate-900 text-white px-3 rounded-xl transition-colors disabled:opacity-50"
+            disabled={loading || !query.trim()}
+            className="bg-slate-800 hover:bg-slate-900 text-white px-4 rounded-xl transition-colors disabled:opacity-50 flex items-center justify-center min-w-[60px]"
           >
-            {loading ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : 'Go'}
+            {loading ? (
+              <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+            ) : (
+              'Go'
+            )}
           </button>
         </div>
       </div>
 
       {result && (
-        <div className="bg-slate-50 rounded-xl p-3 border border-slate-100 text-sm relative animate-fade-in">
-          <button onClick={() => setResult(null)} className="absolute top-2 right-2 text-slate-300 hover:text-slate-500">
+        <div className="bg-gradient-to-br from-slate-50 to-white rounded-xl p-4 border border-slate-200 relative animate-fade-in">
+          <button
+            onClick={() => setResult(null)}
+            className="absolute top-2 right-2 text-slate-300 hover:text-slate-500"
+          >
             <X size={14} />
           </button>
-          <div className="flex items-center gap-2 mb-2">
-            <span className="font-bold text-base text-slate-800">{query}</span>
-            <button onClick={speak} className="text-slate-500 hover:text-slate-800">
+
+          <div className="flex items-center gap-2 mb-3">
+            <h4 className="text-lg font-bold text-slate-800">{query}</h4>
+            <button
+              onClick={speak}
+              className="text-slate-500 hover:text-slate-800 transition-colors"
+              title="Pronounce"
+            >
               <Volume2 size={16} />
             </button>
           </div>
-          <div className="prose prose-xs text-slate-600 whitespace-pre-wrap leading-relaxed max-h-48 overflow-y-auto custom-scrollbar">
-            {result}
-          </div>
+
+          {parsedResult ? (
+            <div className="space-y-2 text-sm">
+              {parsedResult.pos && (
+                <div>
+                  <span className="font-semibold text-slate-600">Part of Speech:</span>{' '}
+                  <span className="text-slate-800">{parsedResult.pos}</span>
+                </div>
+              )}
+              {parsedResult.definition && (
+                <div>
+                  <span className="font-semibold text-slate-600">Definition:</span>{' '}
+                  <span className="text-slate-800">{parsedResult.definition}</span>
+                </div>
+              )}
+              {parsedResult.chinese && (
+                <div>
+                  <span className="font-semibold text-slate-600">Chinese:</span>{' '}
+                  <span className="text-slate-800">{parsedResult.chinese}</span>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="text-slate-600 whitespace-pre-wrap leading-relaxed">{result}</div>
+          )}
         </div>
       )}
     </div>
   );
 };
+
+// --- StudyTimer (Unchanged) ---
 
 const StudyTimer: React.FC = () => {
   const [mode, setMode] = useState<'timer' | 'stopwatch'>('timer');
@@ -666,6 +731,8 @@ const StudyTimer: React.FC = () => {
     </div>
   );
 };
+
+// --- Main Component ---
 
 const ResourceHub: React.FC = () => {
   return (
