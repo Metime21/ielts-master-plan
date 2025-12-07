@@ -14,10 +14,11 @@
     }
   },
   // 3. 强制路由：将前端调用 /api/gemini 路由到 /api/index.ts
-  "rewrites": [
-    {
-      "source": "/api/gemini",
-      "destination": "/api/index.ts"
+ {
+  "functions": {
+    "api/gemini.ts": {
+      "runtime": "@vercel/node@18.x",
+      "maxDuration": 60
     }
-  ]
+  }
 }
