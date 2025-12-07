@@ -1,41 +1,56 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { ExternalLink, FileText, Search, Volume2, X, Plus, Trash2, CheckSquare, Square, History, Globe, Mic, BookOpen, PenTool, Languages, Headphones, Edit, Check, Link as LinkIcon } from 'lucide-react';
+import {
+  ExternalLink,
+  FileText,
+  Search,
+  Volume2,
+  X,
+  Plus,
+  Trash2,
+  CheckSquare,
+  Square,
+  History,
+  Globe,
+  Mic,
+  BookOpen,
+  PenTool,
+  Languages,
+  Headphones,
+  Edit,
+  Check,
+  Link as LinkIcon,
+} from 'lucide-react';
 
-// --- API Helper Function (FIXED HERE) ---
+// --- API Helper Function ---
 const translateAndDefine = async (text: string): Promise<string> => {
-    
-    const prompt = `Provide a concise dictionary definition, part of speech, and a simple Chinese translation for the English word or phrase: "${text}". Format the response clearly using bullet points or paragraphs.`;
+  const prompt = `Provide a concise dictionary definition, part of speech, and a simple Chinese translation for the English word or phrase: "${text}". Format the response clearly using bullet points or paragraphs.`;
 
-    try {
-        
-        const fetchResponse = await fetch('/api/gemini', { 
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                contents: [{ role: 'user', parts: [{ text: prompt }] }],
-            }),
-        });
-        
-        if (!fetchResponse.ok) {
-            throw new Error(`API Proxy Error: ${fetchResponse.statusText}`);
-        }
+  try {
+    const fetchResponse = await fetch('/api/gemini', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      }),
+    });
 
-        const data = await fetchResponse.json();
-        
-        const resultText = data?.candidates?.[0]?.content?.parts?.[0]?.text; 
-        
-        return resultText || "No definition returned.";
-    } catch (error) {
-        console.error("Dictionary API Call Error:", error);
-        return "Definition search failed. Please check your API connection or try again.";
+    if (!fetchResponse.ok) {
+      throw new Error(`API Proxy Error: ${fetchResponse.statusText}`);
     }
+
+    const data = await fetchResponse.json();
+    const resultText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+    return resultText || 'No definition returned.';
+  } catch (error) {
+    console.error('Dictionary API Call Error:', error);
+    return 'Definition search failed. Please check your API connection or try again.';
+  }
 };
 
 // --- Sub-components ---
 
-// FileManager Component: Handles Upload, View, and Delete logic
 interface FileManagerProps {
   title: string;
 }
@@ -48,11 +63,11 @@ const FileManager: React.FC<FileManagerProps> = ({ title }) => {
 
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-    if (file && file.type === "application/pdf") {
+    if (file && file.type === 'application/pdf') {
       const fileUrl = URL.createObjectURL(file);
-      setFiles(prev => [...prev, { name: file.name, url: fileUrl }]);
+      setFiles((prev) => [...prev, { name: file.name, url: fileUrl }]);
     } else if (file) {
-      alert("Please upload a PDF file.");
+      alert('Please upload a PDF file.');
     }
     if (event.target) event.target.value = '';
   };
@@ -83,29 +98,29 @@ const FileManager: React.FC<FileManagerProps> = ({ title }) => {
       <div className="flex items-center justify-between">
         <span className="text-xs font-bold text-slate-700 uppercase tracking-wide">{title}</span>
         <div className="flex items-center gap-1.5">
-          <button 
+          <button
             onClick={() => fileInputRef.current?.click()}
             className="p-1 bg-emerald-100 text-emerald-600 rounded-md hover:bg-emerald-200 transition-colors"
             title="Upload PDF"
           >
             <Plus size={14} />
           </button>
-          <input 
-            type="file" 
-            ref={fileInputRef} 
-            className="hidden" 
-            accept=".pdf" 
-            onChange={handleFileUpload} 
+          <input
+            type="file"
+            ref={fileInputRef}
+            className="hidden"
+            accept=".pdf"
+            onChange={handleFileUpload}
           />
 
-          <button 
+          <button
             onClick={toggleDeleteMode}
             className={`p-1 rounded-md transition-colors ${
-              isDeleteMode 
-                ? 'bg-red-100 text-red-600 ring-1 ring-red-400' 
+              isDeleteMode
+                ? 'bg-red-100 text-red-600 ring-1 ring-red-400'
                 : 'bg-slate-200 text-slate-600 hover:bg-slate-300'
             }`}
-            title={isDeleteMode ? "Cancel Delete Mode" : "Manage Files"}
+            title={isDeleteMode ? 'Cancel Delete Mode' : 'Manage Files'}
           >
             <X size={14} />
           </button>
@@ -119,14 +134,16 @@ const FileManager: React.FC<FileManagerProps> = ({ title }) => {
           </div>
         ) : (
           files.map((file, idx) => (
-            <div 
-              key={idx} 
+            <div
+              key={idx}
               className={`flex items-center gap-2 p-1.5 rounded-lg transition-all ${
-                isDeleteMode && selectedIndices.has(idx) ? 'bg-red-50 border border-red-100' : 'bg-white border border-slate-100'
+                isDeleteMode && selectedIndices.has(idx)
+                  ? 'bg-red-50 border border-red-100'
+                  : 'bg-white border border-slate-100'
               }`}
             >
               {isDeleteMode ? (
-                <button 
+                <button
                   onClick={() => toggleSelection(idx)}
                   className="text-slate-400 hover:text-red-500 transition-colors"
                 >
@@ -142,17 +159,17 @@ const FileManager: React.FC<FileManagerProps> = ({ title }) => {
 
               <div className="flex-1 min-w-0 overflow-hidden">
                 {isDeleteMode ? (
-                  <span 
+                  <span
                     onClick={() => toggleSelection(idx)}
                     className="text-xs text-slate-700 truncate block cursor-pointer select-none"
                   >
                     {file.name}
                   </span>
                 ) : (
-                  <a 
-                    href={file.url} 
-                    target="_blank" 
-                    rel="noreferrer" 
+                  <a
+                    href={file.url}
+                    target="_blank"
+                    rel="noreferrer"
                     className="text-xs text-slate-700 truncate hover:text-blue-600 hover:underline block"
                     title="Click to read PDF"
                   >
@@ -166,7 +183,7 @@ const FileManager: React.FC<FileManagerProps> = ({ title }) => {
       </div>
 
       {isDeleteMode && selectedIndices.size > 0 && (
-        <button 
+        <button
           onClick={deleteSelected}
           className="w-full py-1 bg-red-500 text-white text-[10px] font-bold rounded-md hover:bg-red-600 transition-colors flex items-center justify-center gap-1 animate-fade-in"
         >
@@ -188,7 +205,7 @@ interface ResourceCardProps {
   title: string;
   items: ResourceItem[];
   icon: React.ReactNode;
-  headerColor: string; // Tailwind bg class
+  headerColor: string;
 }
 
 const ResourceCard: React.FC<ResourceCardProps> = ({ title, items: initialItems, icon, headerColor }) => {
@@ -207,8 +224,7 @@ const ResourceCard: React.FC<ResourceCardProps> = ({ title, items: initialItems,
   const handleUpdateItem = (index: number, field: keyof ResourceItem, value: string) => {
     const newItems = [...items];
     newItems[index] = { ...newItems[index], [field]: value };
-    
-    // Smart Identify: Auto-fill title from URL if title is empty
+
     if (field === 'url' && !newItems[index].name && value) {
       try {
         const urlObj = new URL(value);
@@ -225,100 +241,90 @@ const ResourceCard: React.FC<ResourceCardProps> = ({ title, items: initialItems,
 
   return (
     <div className="bg-white rounded-2xl overflow-hidden shadow-sm hover:shadow-lg transition-all duration-300 border border-slate-100 flex flex-col h-full group">
-      {/* Morandi Header */}
       <div className={`px-4 py-2 flex items-center justify-between ${headerColor} transition-colors border-b border-black/5`}>
         <div className="flex items-center gap-2.5">
-          <div className="bg-white/60 p-1.5 rounded-lg text-slate-800 backdrop-blur-sm shadow-sm">
-             {icon}
-          </div>
+          <div className="bg-white/60 p-1.5 rounded-lg text-slate-800 backdrop-blur-sm shadow-sm">{icon}</div>
           <h3 className="text-sm font-bold text-slate-800 tracking-tight">{title}</h3>
         </div>
-        
-        {/* Edit Toggle */}
-        <button 
+
+        <button
           onClick={() => setIsEditing(!isEditing)}
           className={`p-1.5 rounded-lg transition-colors ${isEditing ? 'bg-white text-emerald-600 shadow-sm' : 'hover:bg-white/50 text-slate-600'}`}
-          title={isEditing ? "Save Changes" : "Edit Resources"}
+          title={isEditing ? 'Save Changes' : 'Edit Resources'}
         >
           {isEditing ? <Check size={14} /> : <Edit size={14} />}
         </button>
       </div>
-      
-      {/* Content */}
+
       <div className="p-3 space-y-2 flex-1 bg-white">
         {items.map((item, idx) => (
           <div key={idx} className="group/item">
             {isEditing ? (
-              // Edit Mode View
               <div className="bg-slate-50 border border-slate-200 rounded-xl p-2 space-y-2 animate-fade-in relative">
                 {item.isUpload ? (
                   <div className="flex items-center justify-between">
-                     <span className="text-xs font-bold text-slate-400 uppercase">PDF Manager (Locked)</span>
-                     {/* Cannot delete hardcoded upload managers easily to preserve functionality, or maybe allow rename only */}
+                    <span className="text-xs font-bold text-slate-400 uppercase">PDF Manager (Locked)</span>
                   </div>
                 ) : (
                   <>
-                     <div className="flex items-center gap-2">
-                        <LinkIcon size={12} className="text-slate-400 flex-shrink-0" />
-                        <input 
-                          value={item.url || ''}
-                          onChange={(e) => handleUpdateItem(idx, 'url', e.target.value)}
-                          placeholder="https://..."
-                          className="flex-1 text-[10px] bg-white border border-slate-200 rounded px-1.5 py-1 focus:outline-none focus:border-blue-300"
-                        />
-                     </div>
-                     <div className="flex items-center gap-2">
-                        <input 
-                          value={item.name}
-                          onChange={(e) => handleUpdateItem(idx, 'name', e.target.value)}
-                          placeholder="Title"
-                          className="flex-1 text-xs font-bold bg-white border border-slate-200 rounded px-1.5 py-1 focus:outline-none focus:border-blue-300"
-                        />
-                        <button 
-                          onClick={() => handleRemoveItem(idx)}
-                          className="p-1 text-red-400 hover:text-red-600 hover:bg-red-50 rounded"
-                          title="Remove Item"
-                        >
-                          <Trash2 size={12} />
-                        </button>
-                     </div>
-                     <input 
-                          value={item.note || ''}
-                          onChange={(e) => handleUpdateItem(idx, 'note', e.target.value)}
-                          placeholder="Short Note (Optional)"
-                          className="w-full text-[9px] bg-transparent border-b border-slate-200 focus:border-slate-400 text-slate-500 focus:outline-none px-1"
-                        />
+                    <div className="flex items-center gap-2">
+                      <LinkIcon size={12} className="text-slate-400 flex-shrink-0" />
+                      <input
+                        value={item.url || ''}
+                        onChange={(e) => handleUpdateItem(idx, 'url', e.target.value)}
+                        placeholder="https://..."
+                        className="flex-1 text-[10px] bg-white border border-slate-200 rounded px-1.5 py-1 focus:outline-none focus:border-blue-300"
+                      />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input
+                        value={item.name}
+                        onChange={(e) => handleUpdateItem(idx, 'name', e.target.value)}
+                        placeholder="Title"
+                        className="flex-1 text-xs font-bold bg-white border border-slate-200 rounded px-1.5 py-1 focus:outline-none focus:border-blue-300"
+                      />
+                      <button
+                        onClick={() => handleRemoveItem(idx)}
+                        className="p-1 text-red-400 hover:text-red-600 hover:bg-red-50 rounded"
+                        title="Remove Item"
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    </div>
+                    <input
+                      value={item.note || ''}
+                      onChange={(e) => handleUpdateItem(idx, 'note', e.target.value)}
+                      placeholder="Short Note (Optional)"
+                      className="w-full text-[9px] bg-transparent border-b border-slate-200 focus:border-slate-400 text-slate-500 focus:outline-none px-1"
+                    />
                   </>
                 )}
               </div>
+            ) : item.isUpload ? (
+              <FileManager title={item.name} />
             ) : (
-              // View Mode View
-              item.isUpload ? (
-                <FileManager title={item.name} />
-              ) : (
-                <a 
-                  href={item.url} 
-                  target="_blank" 
-                  rel="noreferrer"
-                  className="block bg-slate-50 border border-slate-200 rounded-xl p-2 hover:border-slate-400 hover:bg-white hover:shadow-sm transition-all"
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="min-w-0">
-                      <span className="text-xs font-bold text-slate-700 group-hover/item:text-slate-900 transition-colors block truncate">
-                        {item.name}
-                      </span>
-                      {item.note && <p className="text-[9px] text-slate-400 mt-0.5 uppercase tracking-wide truncate">{item.note}</p>}
-                    </div>
-                    <ExternalLink size={12} className="text-slate-300 group-hover/item:text-slate-600 transition-colors flex-shrink-0 ml-2" />
+              <a
+                href={item.url}
+                target="_blank"
+                rel="noreferrer"
+                className="block bg-slate-50 border border-slate-200 rounded-xl p-2 hover:border-slate-400 hover:bg-white hover:shadow-sm transition-all"
+              >
+                <div className="flex items-center justify-between">
+                  <div className="min-w-0">
+                    <span className="text-xs font-bold text-slate-700 group-hover/item:text-slate-900 transition-colors block truncate">
+                      {item.name}
+                    </span>
+                    {item.note && <p className="text-[9px] text-slate-400 mt-0.5 uppercase tracking-wide truncate">{item.note}</p>}
                   </div>
-                </a>
-              )
+                  <ExternalLink size={12} className="text-slate-300 group-hover/item:text-slate-600 transition-colors flex-shrink-0 ml-2" />
+                </div>
+              </a>
             )}
           </div>
         ))}
 
         {isEditing && (
-          <button 
+          <button
             onClick={handleAddItem}
             className="w-full py-1.5 mt-2 rounded-lg border border-dashed border-slate-300 text-slate-400 hover:text-slate-600 hover:border-slate-400 hover:bg-slate-50 text-xs font-medium flex items-center justify-center gap-1 transition-all"
           >
@@ -346,8 +352,8 @@ const DictionaryWidget: React.FC = () => {
         setShowHistory(false);
       }
     };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
   const performSearch = async (text: string) => {
@@ -355,9 +361,9 @@ const DictionaryWidget: React.FC = () => {
     setLoading(true);
     setResult(null);
     setShowHistory(false);
-    
-    setHistory(prev => {
-      const newHistory = [text, ...prev.filter(h => h !== text)].slice(0, 5); 
+
+    setHistory((prev) => {
+      const newHistory = [text, ...prev.filter((h) => h !== text)].slice(0, 5);
       return newHistory;
     });
 
@@ -373,7 +379,7 @@ const DictionaryWidget: React.FC = () => {
   };
 
   const openGoogleTranslate = () => {
-    const text = query.trim() || "";
+    const text = query.trim() || '';
     window.open(`https://translate.google.com/?sl=en&tl=zh-CN&text=${encodeURIComponent(text)}`, '_blank');
   };
 
@@ -391,16 +397,19 @@ const DictionaryWidget: React.FC = () => {
         <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
           <Search size={14} /> Dictionary
         </h3>
-        <button onClick={openGoogleTranslate} className="text-[10px] bg-blue-50 text-blue-600 border border-blue-100 px-2 py-1 rounded-full hover:bg-blue-100 transition-colors">
-          <Globe size={10} className="inline mr-1"/> Google
+        <button
+          onClick={openGoogleTranslate}
+          className="text-[10px] bg-blue-50 text-blue-600 border border-blue-100 px-2 py-1 rounded-full hover:bg-blue-100 transition-colors"
+        >
+          <Globe size={10} className="inline mr-1" /> Google
         </button>
       </div>
 
       <div className="relative mb-3">
         <div className="flex gap-2">
           <div className="relative flex-1">
-            <input 
-              type="text" 
+            <input
+              type="text"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               onFocus={() => setShowHistory(true)}
@@ -415,7 +424,11 @@ const DictionaryWidget: React.FC = () => {
                 </div>
                 <ul>
                   {history.map((item, idx) => (
-                    <li key={idx} onClick={() => handleHistorySelect(item)} className="px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 cursor-pointer border-b border-slate-50 last:border-none flex justify-between items-center group">
+                    <li
+                      key={idx}
+                      onClick={() => handleHistorySelect(item)}
+                      className="px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 cursor-pointer border-b border-slate-50 last:border-none flex justify-between items-center group"
+                    >
                       {item} <ExternalLink size={12} className="opacity-0 group-hover:opacity-50" />
                     </li>
                   ))}
@@ -423,9 +436,9 @@ const DictionaryWidget: React.FC = () => {
               </div>
             )}
           </div>
-          <button 
-            onClick={handleSearchClick} 
-            disabled={loading} 
+          <button
+            onClick={handleSearchClick}
+            disabled={loading}
             className="bg-slate-800 hover:bg-slate-900 text-white px-3 rounded-xl transition-colors disabled:opacity-50"
           >
             {loading ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : 'Go'}
@@ -435,12 +448,18 @@ const DictionaryWidget: React.FC = () => {
 
       {result && (
         <div className="bg-slate-50 rounded-xl p-3 border border-slate-100 text-sm relative animate-fade-in">
-           <button onClick={() => setResult(null)} className="absolute top-2 right-2 text-slate-300 hover:text-slate-500"><X size={14} /></button>
-           <div className="flex items-center gap-2 mb-2">
-             <span className="font-bold text-base text-slate-800">{query}</span>
-             <button onClick={speak} className="text-slate-500 hover:text-slate-800"><Volume2 size={16} /></button>
-           </div>
-           <div className="prose prose-xs text-slate-600 whitespace-pre-wrap leading-relaxed max-h-48 overflow-y-auto custom-scrollbar">{result}</div>
+          <button onClick={() => setResult(null)} className="absolute top-2 right-2 text-slate-300 hover:text-slate-500">
+            <X size={14} />
+          </button>
+          <div className="flex items-center gap-2 mb-2">
+            <span className="font-bold text-base text-slate-800">{query}</span>
+            <button onClick={speak} className="text-slate-500 hover:text-slate-800">
+              <Volume2 size={16} />
+            </button>
+          </div>
+          <div className="prose prose-xs text-slate-600 whitespace-pre-wrap leading-relaxed max-h-48 overflow-y-auto custom-scrollbar">
+            {result}
+          </div>
         </div>
       )}
     </div>
@@ -450,19 +469,17 @@ const DictionaryWidget: React.FC = () => {
 const StudyTimer: React.FC = () => {
   const [mode, setMode] = useState<'timer' | 'stopwatch'>('timer');
   const [status, setStatus] = useState<'idle' | 'running' | 'paused'>('idle');
-  
-  // Timer Input State (HH:MM:SS)
+
   const [h, setH] = useState('00');
   const [m, setM] = useState('25');
   const [s, setS] = useState('00');
-  
-  // Running State
+
   const [timeLeft, setTimeLeft] = useState(25 * 60);
   const [stopwatchTime, setStopwatchTime] = useState(0);
 
   useEffect(() => {
     let interval: ReturnType<typeof setInterval> | null = null;
-    
+
     if (status === 'running') {
       interval = setInterval(() => {
         if (mode === 'timer') {
@@ -480,45 +497,46 @@ const StudyTimer: React.FC = () => {
         }
       }, 1000);
     }
-    
-    return () => { if (interval) clearInterval(interval); };
+
+    return () => {
+      if (interval) clearInterval(interval);
+    };
   }, [status, mode]);
 
   const playAppleRadarAlarm = () => {
     try {
       const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
       if (!AudioContext) return;
-      
+
       const ctx = new AudioContext();
       const now = ctx.currentTime;
-      
+
       const playPulse = (time: number) => {
-         const osc = ctx.createOscillator();
-         const gain = ctx.createGain();
-         osc.connect(gain);
-         gain.connect(ctx.destination);
-         
-         osc.type = 'triangle'; // Sharp enough for alarm
-         osc.frequency.setValueAtTime(1200, time);
-         osc.frequency.exponentialRampToValueAtTime(800, time + 0.1);
-         
-         gain.gain.setValueAtTime(0, time);
-         gain.gain.linearRampToValueAtTime(0.3, time + 0.01);
-         gain.gain.linearRampToValueAtTime(0, time + 0.1);
-         
-         osc.start(time);
-         osc.stop(time + 0.1);
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(1200, time);
+        osc.frequency.exponentialRampToValueAtTime(800, time + 0.1);
+
+        gain.gain.setValueAtTime(0, time);
+        gain.gain.linearRampToValueAtTime(0.3, time + 0.01);
+        gain.gain.linearRampToValueAtTime(0, time + 0.1);
+
+        osc.start(time);
+        osc.stop(time + 0.1);
       };
 
-      // Radar pattern: 3 fast beeps, wait, repeat
-      for(let loop = 0; loop < 4; loop++) {
-        const base = now + (loop * 1.5);
+      for (let loop = 0; loop < 4; loop++) {
+        const base = now + loop * 1.5;
         playPulse(base);
         playPulse(base + 0.15);
         playPulse(base + 0.3);
       }
     } catch (e) {
-      console.error("Audio error", e);
+      console.error('Audio error', e);
     }
   };
 
@@ -535,12 +553,10 @@ const StudyTimer: React.FC = () => {
   };
 
   const handlePause = () => setStatus('paused');
-  
+
   const handleReset = () => {
     setStatus('idle');
-    if (mode === 'timer') {
-      // Keep input values, reset timeleft
-    } else {
+    if (mode === 'stopwatch') {
       setStopwatchTime(0);
     }
   };
@@ -549,7 +565,7 @@ const StudyTimer: React.FC = () => {
     const hh = Math.floor(totalSec / 3600);
     const mm = Math.floor((totalSec % 3600) / 60);
     const ss = totalSec % 60;
-    
+
     if (hh > 0) {
       return `${hh}:${mm.toString().padStart(2, '0')}:${ss.toString().padStart(2, '0')}`;
     }
@@ -564,86 +580,89 @@ const StudyTimer: React.FC = () => {
 
   return (
     <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-100 overflow-hidden">
-       {/* Mode Switcher */}
-       <div className="bg-slate-100 p-1 rounded-lg flex mb-8">
-          <button 
-             onClick={() => { setMode('timer'); setStatus('idle'); }}
-             className={`flex-1 py-1 rounded-md text-xs font-bold transition-all ${mode === 'timer' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-400'}`}
-          >
-             Timer
-          </button>
-          <button 
-             onClick={() => { setMode('stopwatch'); setStatus('idle'); }}
-             className={`flex-1 py-1 rounded-md text-xs font-bold transition-all ${mode === 'stopwatch' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-400'}`}
-          >
-             Stopwatch
-          </button>
-       </div>
+      <div className="bg-slate-100 p-1 rounded-lg flex mb-8">
+        <button
+          onClick={() => {
+            setMode('timer');
+            setStatus('idle');
+          }}
+          className={`flex-1 py-1 rounded-md text-xs font-bold transition-all ${
+            mode === 'timer' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-400'
+          }`}
+        >
+          Timer
+        </button>
+        <button
+          onClick={() => {
+            setMode('stopwatch');
+            setStatus('idle');
+          }}
+          className={`flex-1 py-1 rounded-md text-xs font-bold transition-all ${
+            mode === 'stopwatch' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-400'
+          }`}
+        >
+          Stopwatch
+        </button>
+      </div>
 
-       {/* Display Area */}
-       <div className="flex justify-center items-center h-24 mb-6">
-          {mode === 'timer' && status === 'idle' ? (
-             // Input Mode
-             <div className="flex items-center text-5xl font-light text-slate-800 tracking-tight gap-1">
-                <input 
-                  value={h}
-                  onChange={(e) => handleInputChange(e.target.value, setH, 99)}
-                  onFocus={(e) => e.target.select()}
-                  className="w-16 text-center bg-transparent hover:bg-slate-50 focus:bg-slate-100 rounded-lg outline-none transition-colors"
-                  placeholder="00"
-                />
-                <span className="text-slate-300 -mt-2">:</span>
-                <input 
-                  value={m}
-                  onChange={(e) => handleInputChange(e.target.value, setM, 59)}
-                  onFocus={(e) => e.target.select()}
-                  className="w-16 text-center bg-transparent hover:bg-slate-50 focus:bg-slate-100 rounded-lg outline-none transition-colors"
-                  placeholder="00"
-                />
-                <span className="text-slate-300 -mt-2">:</span>
-                <input 
-                  value={s}
-                  onChange={(e) => handleInputChange(e.target.value, setS, 59)}
-                  onFocus={(e) => e.target.select()}
-                  className="w-16 text-center bg-transparent hover:bg-slate-50 focus:bg-slate-100 rounded-lg outline-none transition-colors"
-                  placeholder="00"
-                />
-             </div>
-          ) : (
-             // Running Mode (Timer or Stopwatch)
-             <div className="text-6xl font-light text-slate-800 tabular-nums tracking-tight">
-                {mode === 'timer' ? formatTime(timeLeft) : formatTime(stopwatchTime)}
-             </div>
-          )}
-       </div>
+      <div className="flex justify-center items-center h-24 mb-6">
+        {mode === 'timer' && status === 'idle' ? (
+          <div className="flex items-center text-5xl font-light text-slate-800 tracking-tight gap-1">
+            <input
+              value={h}
+              onChange={(e) => handleInputChange(e.target.value, setH, 99)}
+              onFocus={(e) => e.target.select()}
+              className="w-16 text-center bg-transparent hover:bg-slate-50 focus:bg-slate-100 rounded-lg outline-none transition-colors"
+              placeholder="00"
+            />
+            <span className="text-slate-300 -mt-2">:</span>
+            <input
+              value={m}
+              onChange={(e) => handleInputChange(e.target.value, setM, 59)}
+              onFocus={(e) => e.target.select()}
+              className="w-16 text-center bg-transparent hover:bg-slate-50 focus:bg-slate-100 rounded-lg outline-none transition-colors"
+              placeholder="00"
+            />
+            <span className="text-slate-300 -mt-2">:</span>
+            <input
+              value={s}
+              onChange={(e) => handleInputChange(e.target.value, setS, 59)}
+              onFocus={(e) => e.target.select()}
+              className="w-16 text-center bg-transparent hover:bg-slate-50 focus:bg-slate-100 rounded-lg outline-none transition-colors"
+              placeholder="00"
+            />
+          </div>
+        ) : (
+          <div className="text-6xl font-light text-slate-800 tabular-nums tracking-tight">
+            {mode === 'timer' ? formatTime(timeLeft) : formatTime(stopwatchTime)}
+          </div>
+        )}
+      </div>
 
-       {/* Controls - iOS Style */}
-       <div className="flex justify-between items-center px-4">
-          {/* Cancel / Reset Button */}
-          <button 
-            onClick={handleReset}
-            className="w-16 h-16 rounded-full bg-slate-100 text-slate-500 font-medium text-sm hover:bg-slate-200 transition-colors active:scale-95 flex items-center justify-center border border-slate-200"
+      <div className="flex justify-between items-center px-4">
+        <button
+          onClick={handleReset}
+          className="w-16 h-16 rounded-full bg-slate-100 text-slate-500 font-medium text-sm hover:bg-slate-200 transition-colors active:scale-95 flex items-center justify-center border border-slate-200"
+        >
+          {status === 'idle' && mode === 'timer' ? 'Clear' : 'Cancel'}
+        </button>
+
+        {status === 'running' ? (
+          <button
+            onClick={handlePause}
+            className="w-16 h-16 rounded-full bg-orange-100 text-orange-600 font-medium text-sm hover:bg-orange-200 transition-colors active:scale-95 flex items-center justify-center border border-orange-200"
           >
-            {status === 'idle' && mode === 'timer' ? 'Clear' : 'Cancel'}
+            Pause
           </button>
-          
-          {/* Start / Pause Button */}
-          {status === 'running' ? (
-             <button 
-               onClick={handlePause}
-               className="w-16 h-16 rounded-full bg-orange-100 text-orange-600 font-medium text-sm hover:bg-orange-200 transition-colors active:scale-95 flex items-center justify-center border border-orange-200"
-             >
-               Pause
-             </button>
-          ) : (
-             <button 
-               onClick={handleStart}
-               className="w-16 h-16 rounded-full bg-green-100 text-green-600 font-medium text-sm hover:bg-green-200 transition-colors active:scale-95 flex items-center justify-center border border-green-200"
-             >
-               {status === 'paused' ? 'Resume' : 'Start'}
-             </button>
-          )}
-       </div>
+        ) : (
+          <button
+            onClick={handleStart}
+            className="w-16 h-16 rounded-full bg-green-100 text-green-600 font-medium text-sm hover:bg-green-200 transition-colors active:scale-95 flex items-center justify-center border border-green-200"
+          >
+            {status === 'paused' ? 'Resume' : 'Start'}
+          </button>
+        )}
+      </div>
     </div>
   );
 };
@@ -654,80 +673,70 @@ const ResourceHub: React.FC = () => {
       <div className="flex flex-col md:flex-row justify-between items-end mb-6 px-2">
         <div>
           <h2 className="text-3xl font-extrabold text-academic-900 tracking-tight">Resource Hub</h2>
-          <p className="text-slate-500 mt-1 flex items-center gap-2 text-sm">
-             Curated materials for band 8.0+
-          </p>
+          <p className="text-slate-500 mt-1 flex items-center gap-2 text-sm">Curated materials for band 8.0+</p>
         </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
-        
         {/* --- LEFT: Resources Grid (8 Cols) --- */}
         <div className="lg:col-span-8 grid grid-cols-1 md:grid-cols-2 gap-5">
-          
-          {/* Row 1: Foundations & Input */}
-          <ResourceCard 
-            title="Vocabulary" 
-            icon={<Languages size={18} className="text-emerald-700"/>}
-            headerColor="bg-[#A4C3B2]/30" // Morandi Green
+          <ResourceCard
+            title="Vocabulary"
+            icon={<Languages size={18} className="text-emerald-700" />}
+            headerColor="bg-[#A4C3B2]/30"
             items={[
               { name: 'YouGlish', url: 'https://youglish.com', note: 'Contextual Pronunciation' },
               { name: 'BuBeiDan (App)', note: 'App Recommendation' },
-              { name: 'Vocabulary Lists (PDF)', isUpload: true }
-            ]} 
+              { name: 'Vocabulary Lists (PDF)', isUpload: true },
+            ]}
           />
-          
-          <ResourceCard 
-            title="Listening" 
-            icon={<Headphones size={18} className="text-blue-700"/>}
-            headerColor="bg-[#9BB7D4]/30" // Morandi Blue
+
+          <ResourceCard
+            title="Listening"
+            icon={<Headphones size={18} className="text-blue-700" />}
+            headerColor="bg-[#9BB7D4]/30"
             items={[
               { name: 'BBC Learning English', url: 'https://www.youtube.com/@bbclearningenglish/videos', note: 'Global News & Accents' },
               { name: 'VoiceTube', url: 'https://www.voicetube.com/channels/business-and-finance?sortBy=publishedAt&page=1', note: 'Video Dictionary' },
-              { name: 'Cambridge Listening Practice', isUpload: true }
-            ]} 
+              { name: 'Cambridge Listening Practice', isUpload: true },
+            ]}
           />
 
-          {/* Row 2: Reading & Writing */}
-          <ResourceCard 
-             title="Reading" 
-             icon={<BookOpen size={18} className="text-rose-700"/>}
-             headerColor="bg-[#D4A5A5]/30" // Morandi Red/Pink
-             items={[
-               { name: 'Cambridge 11-19 Papers', isUpload: true }
-             ]} 
-           />
+          <ResourceCard
+            title="Reading"
+            icon={<BookOpen size={18} className="text-rose-700" />}
+            headerColor="bg-[#D4A5A5]/30"
+            items={[{ name: 'Cambridge 11-19 Papers', isUpload: true }]}
+          />
 
-          <ResourceCard 
-            title="Writing" 
-            icon={<PenTool size={18} className="text-yellow-700"/>}
-            headerColor="bg-[#EAD18F]/30" // Morandi Yellow
+          <ResourceCard
+            title="Writing"
+            icon={<PenTool size={18} className="text-yellow-700" />}
+            headerColor="bg-[#EAD18F]/30"
             items={[
               { name: 'Simon IELTS', url: 'https://www.bilibili.com/video/BV1fhghzZE8a/?spm_id_from=333.1387.favlist.content.click&vd_source=1e206dd35c34dcc28320db7fcfbfa95e', note: 'Band 9 Structures' },
-              { name: 'IELTS Liz Essays', url: 'https://ieltsliz.com/ielts-writing-task-2/', note: 'Model Answers' }
-            ]} 
+              { name: 'IELTS Liz Essays', url: 'https://ieltsliz.com/ielts-writing-task-2/', note: 'Model Answers' },
+            ]}
           />
 
-          {/* Row 3: Speaking - Full Width */}
           <div className="md:col-span-2">
-            <ResourceCard 
-              title="Speaking" 
-              icon={<Mic size={18} className="text-orange-700"/>}
-              headerColor="bg-[#E6B89C]/30" // Morandi Orange
+            <ResourceCard
+              title="Speaking"
+              icon={<Mic size={18} className="text-orange-700" />}
+              headerColor="bg-[#E6B89C]/30"
               items={[
                 { name: 'English with Lucy', url: 'https://www.youtube.com/feed/subscriptions/UCz4tgANd4yy8Oe0iXCdSWfA', note: 'British Pronunciation' },
-                { name: 'IELTS Liz Tips', url: 'https://ieltsliz.com/ielts-speaking-free-lessons-essential-tips/', note: 'Part 1, 2, 3 Strategy' }
-              ]} 
+                { name: 'IELTS Liz Tips', url: 'https://ieltsliz.com/ielts-speaking-free-lessons-essential-tips/', note: 'Part 1, 2, 3 Strategy' },
+              ]}
             />
           </div>
         </div>
 
         {/* --- RIGHT: Tools Sidebar (4 Cols) --- */}
         <div className="lg:col-span-4 space-y-5">
-           <StudyTimer />
-           <DictionaryWidget />
+          <StudyTimer />
+          <DictionaryWidget />
         </div>
-
       </div>
     </div>
   );
