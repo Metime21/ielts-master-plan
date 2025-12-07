@@ -1,5 +1,3 @@
-// api/gemini.ts
-
 import { VercelRequest, VercelResponse } from '@vercel/node';
 
 const GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
@@ -22,6 +20,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const { contents, config } = req.body;
     const systemInstruction = config?.systemInstruction;
 
+    const finalContents = [];
+    if (systemInstruction) {
+      finalContents.push({
+        role: 'system',
+        parts: [{ text: systemInstruction }]
+      });
+    }
+    finalContents.push(...contents);
+
     const fullUrl = `${GEMINI_API_URL}?key=${apiKey}`;
 
     const response = await fetch(fullUrl, {
@@ -30,8 +37,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        contents,
-        ...(systemInstruction && { systemInstruction })
+        contents: finalContents
       })
     });
 
