@@ -2,7 +2,7 @@
 
 // 定义一个通用的请求函数，它将请求发送给 Vercel 代理
 const fetchGeminiProxy = async (contents: any, config?: any): Promise<any> => {
-    const response = await fetch('/api/gemini-edge', {
+    const response = await fetch('/api/gemini-proxy', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -72,3 +72,4 @@ export const translateAndDefine = async (text: string): Promise<string> => {
     // 最终调用 generateGeminiResponse，它会通过代理发送请求
     return await generateGeminiResponse(prompt, "You are a helpful and professional IELTS Dictionary assistant.");
 };
+
