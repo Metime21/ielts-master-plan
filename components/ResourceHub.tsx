@@ -1,13 +1,13 @@
-
 import React, { useState, useRef, useEffect } from 'react';
 import { ExternalLink, FileText, Search, Volume2, X, Plus, Trash2, CheckSquare, Square, History, Globe, Mic, BookOpen, PenTool, Languages, Headphones, Edit, Check, Link as LinkIcon } from 'lucide-react';
-// --- API Helper Function (Added Here) ---
+
+// --- API Helper Function (FIXED HERE) ---
 const translateAndDefine = async (text: string): Promise<string> => {
-    // 明确告诉 AI 你的要求，确保回复结构清晰
+    
     const prompt = `Provide a concise dictionary definition, part of speech, and a simple Chinese translation for the English word or phrase: "${text}". Format the response clearly using bullet points or paragraphs.`;
 
     try {
-        // 这是调用 Next.js /api/gemini 代理的代码
+        
         const fetchResponse = await fetch('/api/gemini', { 
             method: 'POST',
             headers: {
@@ -23,10 +23,10 @@ const translateAndDefine = async (text: string): Promise<string> => {
         }
 
         const data = await fetchResponse.json();
-        // 从代理返回的完整 response 对象中提取 text
-        const resultText = data.response.text; 
         
-        return resultText; 
+        const resultText = data?.candidates?.[0]?.content?.parts?.[0]?.text; 
+        
+        return resultText || "No definition returned.";
     } catch (error) {
         console.error("Dictionary API Call Error:", error);
         return "Definition search failed. Please check your API connection or try again.";
