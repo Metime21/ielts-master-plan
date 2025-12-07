@@ -42,8 +42,8 @@ const GeminiChat: React.FC = () => {
     setIsTyping(true);
 
     try {
-      const promptToSend = `You are an expert IELTS tutor. Provide concise, high-scoring advice for the following query: "${userMsg.text}"`;
-      const responseText = await generateGeminiResponse(promptToSend);
+      const systemInstruction = "You are an expert IELTS tutor. Provide concise, high-scoring, and actionable advice.";
+      const responseText = await generateGeminiResponse(userMsg.text, systemInstruction);
 
       const botMsg: ChatMessage = {
         id: (Date.now() + 1).toString(),
