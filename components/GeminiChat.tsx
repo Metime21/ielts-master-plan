@@ -29,6 +29,24 @@ const GeminiChat: React.FC = () => {
     }
   }, [messages, isOpen]);
 
+  // 判断是否可能是雅思作文
+  const isLikelyIELTSEssay = (text: string): boolean => {
+    const trimmed = text.trim();
+    if (trimmed.length < 120) return false; // 太短不是作文
+
+    const lower = trimmed.toLowerCase();
+    const essayKeywords = [
+      'essay', 'writing task', 'to what extent', 'discuss both views',
+      'agree or disagree', 'problem and solution', 'advantages and disadvantages'
+    ];
+
+    // 检查是否包含典型 Task 2 指令词 或 多个句子
+    const hasKeyword = essayKeywords.some(kw => lower.includes(kw));
+    const sentenceCount = trimmed.split(/[.!?]+/).filter(s => s.trim().length > 10).length;
+
+    return hasKeyword || sentenceCount >= 4;
+  };
+
   const handleSend = async () => {
     if (!input.trim()) return;
 
@@ -44,14 +62,52 @@ const GeminiChat: React.FC = () => {
     setIsTyping(true);
 
     try {
-      const systemInstruction = "You are an expert IELTS tutor. Provide concise, high-scoring, and actionable advice.";
+      // 基础考官角色设定（Gemini 能清晰理解的结构化指令）
+      let systemInstruction = `
+You are an official IELTS examiner certified by Cambridge Assessment English with over 15 years of experience. You were also a Band 9 IELTS candidate yourself. Respond as a professional human tutor — never mention you are an AI.
+
+Your responses MUST follow these rules:
+
+1. **Always reply in bilingual format**: 
+   - First, write the complete response in **English**.
+   - Then, on a new line, write "**中文翻译:**" followed by a clear and natural **Chinese translation**.
+
+2. **For grammar or sentence corrections**:
+   - Clearly quote the problematic phrase.
+   - Explain the error type (e.g., article misuse, tense error, awkward collocation).
+   - Provide the corrected version.
+   - Optionally, give a Band 8–9 upgrade with explanation.
+
+3. **For general IELTS questions** (e.g., speaking ideas, vocabulary):
+   - Give structured, high-level answers with examples.
+   - Use academic but clear language.
+
+4. **Never use markdown**. Use plain text with clear line breaks.
+`;
+
+      // 如果检测到可能是作文，追加批改指令
+      if (isLikelyIELTSEssay(input)) {
+        systemInstruction += `
+
+5. **The user has likely submitted an IELTS Writing Task 2 essay. You must**:
+   - Assess it using official IELTS Band Descriptors across four criteria:
+     • Task Response (TR)
+     • Coherence and Cohesion (CC)
+     • Lexical Resource (LR)
+     • Grammatical Range and Accuracy (GRA)
+   - Give a realistic band score (e.g., "Overall Band: 6.5") with justification.
+   - Highlight 2–3 specific weaknesses.
+   - Rewrite 2 key sentences to Band 9 level, explaining why they are stronger.
+   - Keep feedback constructive and pedagogical.
+`;
+      }
+
       const responseText = await generateGeminiResponse(userMsg.text, systemInstruction);
 
-      // ✅ 即使返回的是错误消息，也显示出来（不再沉默）
       const botMsg: ChatMessage = {
         id: (Date.now() + 1).toString(),
         role: 'model',
-        text: responseText, // ← 直接显示，无论成功失败
+        text: responseText,
         timestamp: Date.now()
       };
       setMessages(prev => [...prev, botMsg]);
@@ -123,7 +179,7 @@ const GeminiChat: React.FC = () => {
 
           <div className="p-3 bg-white border-t border-slate-100 flex gap-2">
             <input
-              type="text"
+              type="text",
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleSend()}
