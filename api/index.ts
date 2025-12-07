@@ -4,6 +4,7 @@ import { VercelRequest, VercelResponse } from '@vercel/node';
 const GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
+ console.log("Received request to /api/gemini", req.method);
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     console.error("GEMINI_API_KEY is missing");
