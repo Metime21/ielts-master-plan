@@ -1,76 +1,74 @@
-// /api/gemini-edge.ts
+// /api/gemini-proxy/index.ts
 
-export const config = {
-  runtime: 'edge',
-  maxDuration: 60,
-};
+import { VercelRequest, VercelResponse } from '@vercel/node';
+
+// 移除 Edge Function 的 export const config
+// export const config = { runtime: 'edge', maxDuration: 60, }; // ⬅️ 已删除
 
 const GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=";
 
-export default async function handler(request: Request) {
+export default async function handler(req: VercelRequest, res: VercelResponse) {
+    // 强制设置超时为 60 秒（通过 Vercel Platform API/CLI 覆盖）
+    // 此处无法设置，依赖 vercel.json 的 maxDuration
+
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
-        return new Response(JSON.stringify({ error: "Server Configuration Error: API Key missing" }), {
-            status: 500,
-            headers: { 'Content-Type': 'application/json' }
-        });
+        return res.status(500).json({ error: "Server Configuration Error: API Key missing" });
     }
     
-    if (request.method !== 'POST') {
-        return new Response(JSON.stringify({ error: 'Method Not Allowed' }), {
-            status: 405,
-            headers: { 'Content-Type': 'application/json' }
-        });
+    if (req.method !== 'POST') {
+        return res.status(405).json({ error: 'Method Not Allowed' });
     }
     
     try {
         const url = `${GEMINI_API_URL}${apiKey}`;
         
         // 1. 获取前端发送的完整 JSON 对象：{ contents, config }
-        const requestBody = await request.json(); 
+        const requestBody = req.body; 
+        
+        // 2. 提取 contents 和 systemInstruction
+        const { contents, config } = requestBody;
+        const systemInstruction = config?.systemInstruction;
 
-        // 2. 发送请求，使用最纯净的 headers
-        const geminiResponse = await fetch(url, {
+        // 3. 构造请求 URL，将 systemInstruction 作为查询参数
+        let finalUrl = `${url}`;
+        if (systemInstruction) {
+             finalUrl += `&systemInstruction=${encodeURIComponent(systemInstruction)}`;
+        }
+        
+        // 4. 发送请求
+        const geminiResponse = await fetch(finalUrl, {
             method: 'POST',
-            // 确保只发送 Content-Type
             headers: {
                 'Content-Type': 'application/json',
             },
-            // 确保请求体是 { contents: [...], config: {...} }
-            body: JSON.stringify(requestBody) 
+            // 请求体中只包含 Google 绝对需要的 contents 字段
+            body: JSON.stringify({ contents: contents }) 
         });
 
-        // 3. 检查 Google 的响应状态
+        // 5. 检查 Google 的响应状态 (4XX/5XX)
         if (!geminiResponse.ok) {
             const errorText = await geminiResponse.text();
             console.error("Gemini API HTTP Error:", errorText);
             
-            // 尝试解析 Google 的 JSON 错误，如果解析失败，直接返回原始文本
             try {
                 const errorJson = JSON.parse(errorText);
-                 return new Response(JSON.stringify({ 
+                 return res.status(geminiResponse.status).json({ 
                     error: `Gemini API Error: ${errorJson.error?.message || 'Unknown Google 4XX Error'}`
-                }), {
-                    status: geminiResponse.status,
-                    headers: { 'Content-Type': 'application/json' }
                 });
             } catch (e) {
-                 // 如果无法解析，直接将 400 错误文本返回给前端
-                 return new Response(errorText, { status: geminiResponse.status });
+                 return res.status(geminiResponse.status).send(errorText);
             }
         }
 
-        // 4. 成功时，直接返回 Google 的响应
-        return geminiResponse; 
+        // 6. 成功时，返回 JSON
+        const responseJson = await geminiResponse.json();
+        return res.status(200).json(responseJson);
 
     } catch (error) {
         console.error("Fatal Fetch/Network Error:", error);
-        return new Response(JSON.stringify({ 
-            error: `Edge Network Connection Failed: ${error.message || 'Unknown network error'}`
-        }), {
-            status: 500,
-            headers: { 'Content-Type': 'application/json' }
+        return res.status(500).json({ 
+            error: `Network Connection Failed: ${error.message || 'Unknown network error'}`
         });
     }
 }
-
