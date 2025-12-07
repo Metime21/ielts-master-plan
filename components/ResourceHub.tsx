@@ -836,5 +836,16 @@ const ResourceHub: React.FC = () => {
               { name: 'IELTS Liz Essays', url: 'https://ieltsliz.com/ielts-writing-task-2/', note: 'Model Answers' },
             ]}
           />
+        </div>
 
-          <div className="md:col-span-2
+        {/* --- RIGHT: Sidebar (4 Cols) --- */}
+        <div className="lg:col-span-4 space-y-5">
+          <DictionaryWidget />
+          <StudyTimer />
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default ResourceHub;
