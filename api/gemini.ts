@@ -1,3 +1,4 @@
+// api/gemini.ts
 import { VercelRequest, VercelResponse } from '@vercel/node';
 
 const GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
@@ -16,17 +17,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
-    const { contents, config } = req.body;
-    const systemInstruction = config?.systemInstruction;
+    const { contents, systemInstruction } = req.body; // ← 直接解构 systemInstruction
 
-    const finalContents = [];
-    if (systemInstruction) {
-      finalContents.push({
-        role: 'system',
+    // 构造合法的请求体
+    const geminiRequestBody: any = { contents };
+
+    // ✅ 正确添加 systemInstruction（顶层字段，不是 contents 的一部分）
+    if (systemInstruction && typeof systemInstruction === 'string') {
+      geminiRequestBody.systemInstruction = {
         parts: [{ text: systemInstruction }]
-      });
+      };
     }
-    finalContents.push(...contents);
 
     const fullUrl = `${GEMINI_API_URL}?key=${apiKey}`;
 
@@ -35,9 +36,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        contents: finalContents
-      })
+      body: JSON.stringify(geminiRequestBody)
     });
 
     console.log("[6] Google API responded | Status:", response.status);
