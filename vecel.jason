@@ -1,0 +1,12 @@
+{
+  "rewrites": [
+    {
+      "source": "/api/gemini-proxy",
+      "destination": "/api/gemini-proxy/index.ts"
+    },
+    {
+      "source": "/api/gemini-proxy/",
+      "destination": "/api/gemini-proxy/index.ts"
+    }
+  ]
+}
