@@ -18,20 +18,27 @@ import {
   Headphones,
   Edit,
   Check,
-  Link as LinkIcon,
+  LinkIcon,
 } from 'lucide-react';
 
 // --- API Helper Function (Updated Prompt) ---
 const translateAndDefine = async (text: string): Promise<string> => {
-  const prompt = `You are a professional English dictionary. For the word or phrase "${text}", provide:
-1. Part of speech (e.g., noun, verb, etc.)
-2. A clear, concise English definition
-3. A simple and accurate Chinese translation
+  const prompt = `You are a professional English dictionary. For the word or phrase "${text}", provide the following information:
 
-Format your response EXACTLY as follows (do not add extra text):
+1. Part of speech (e.g., noun, verb, adjective)
+2. Pronunciation in IPA format (e.g., /'wɔːd/)
+3. A clear, concise English definition
+4. One natural example sentence in English
+5. Chinese translation of the example sentence
+6. Simple and accurate Chinese translation of the word
 
-**Part of Speech:** [pos]  
-**Definition:** [definition]  
+Format your response EXACTLY as follows (do not add extra text or explanations):
+
+**Part of Speech:** [pos]
+**Pronunciation:** [ipa]
+**Definition:** [definition]
+**Example:** [example_en]
+**Example Translation:** [example_zh]
 **Chinese:** [translation]
 
 If the input is invalid or unclear, respond with: "Invalid input. Please enter a valid English word or phrase."`;
@@ -409,8 +416,14 @@ const DictionaryWidget: React.FC = () => {
     lines.forEach((line) => {
       if (line.startsWith('**Part of Speech:**')) {
         parsed.pos = line.replace('**Part of Speech:**', '').trim();
+      } else if (line.startsWith('**Pronunciation:**')) {
+        parsed.pronunciation = line.replace('**Pronunciation:**', '').trim();
       } else if (line.startsWith('**Definition:**')) {
         parsed.definition = line.replace('**Definition:**', '').trim();
+      } else if (line.startsWith('**Example:**')) {
+        parsed.exampleEn = line.replace('**Example:**', '').trim();
+      } else if (line.startsWith('**Example Translation:**')) {
+        parsed.exampleZh = line.replace('**Example Translation:**', '').trim();
       } else if (line.startsWith('**Chinese:**')) {
         parsed.chinese = line.replace('**Chinese:**', '').trim();
       }
@@ -507,10 +520,28 @@ const DictionaryWidget: React.FC = () => {
                   <span className="text-slate-800">{parsedResult.pos}</span>
                 </div>
               )}
+              {parsedResult.pronunciation && (
+                <div>
+                  <span className="font-semibold text-slate-600">Pronunciation:</span>{' '}
+                  <span className="text-slate-800">{parsedResult.pronunciation}</span>
+                </div>
+              )}
               {parsedResult.definition && (
                 <div>
                   <span className="font-semibold text-slate-600">Definition:</span>{' '}
                   <span className="text-slate-800">{parsedResult.definition}</span>
+                </div>
+              )}
+              {parsedResult.exampleEn && (
+                <div>
+                  <span className="font-semibold text-slate-600">Example:</span>{' '}
+                  <span className="text-slate-800 italic">"{parsedResult.exampleEn}"</span>
+                </div>
+              )}
+              {parsedResult.exampleZh && (
+                <div>
+                  <span className="font-semibold text-slate-600">Translation:</span>{' '}
+                  <span className="text-slate-800">{parsedResult.exampleZh}</span>
                 </div>
               )}
               {parsedResult.chinese && (
