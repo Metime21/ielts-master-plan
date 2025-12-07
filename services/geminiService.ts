@@ -12,7 +12,13 @@ const fetchGeminiProxy = async (contents: any, config?: any): Promise<any> => {
     throw new Error(`Proxy failed: ${errorData.error}`);
   }
 
-  return await response.json();
+  const data = await response.json();
+
+  if (!data.candidates || data.candidates.length === 0) {
+    throw new Error("No AI response received");
+  }
+
+  return data;
 };
 
 export const generateGeminiResponse = async (prompt: string, systemInstruction?: string): Promise<string> => {
@@ -22,7 +28,12 @@ export const generateGeminiResponse = async (prompt: string, systemInstruction?:
   try {
     const jsonResponse = await fetchGeminiProxy([userMessage], config);
     const text = jsonResponse.candidates?.[0]?.content?.parts?.[0]?.text;
-    return text || "No response generated from AI.";
+
+    if (!text || typeof text !== 'string') {
+      return "Sorry, I couldn't generate a response.";
+    }
+
+    return text.trim();
   } catch (error) {
     console.error("Gemini Proxy Call Error:", error);
     return "Sorry, I encountered an error connecting to the AI.";
