@@ -8,5 +8,11 @@
       "source": "/api/gemini-proxy/",
       "destination": "/api/gemini-proxy/index.ts"
     }
+  ],
+  "builds": [
+    {
+      "src": "/api/gemini-proxy/index.ts",
+      "use": "@vercel/node"
+    }
   ]
 }
