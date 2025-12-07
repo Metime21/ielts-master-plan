@@ -21,9 +21,9 @@ import {
   LinkIcon,
 } from 'lucide-react';
 
-// --- API Helper Function (Updated Prompt) ---
+// --- API Helper Function (Enhanced Prompt with IELTS chunks & bilingual对照) ---
 const translateAndDefine = async (text: string): Promise<string> => {
-  const prompt = `You are a professional English dictionary. For the word or phrase "${text}", provide the following information:
+  const prompt = `You are a professional IELTS English dictionary. For the word or phrase "${text}", provide the following information:
 
 1. Part of speech (e.g., noun, verb, adjective)
 2. Pronunciation in IPA format (e.g., /'wɔːd/)
@@ -31,8 +31,10 @@ const translateAndDefine = async (text: string): Promise<string> => {
 4. One natural example sentence in English
 5. Chinese translation of the example sentence
 6. Simple and accurate Chinese translation of the word
+7. Bilingual对照 (format: [Chinese] / [English])
+8. IELTS高频词组 (chunk): List 2-3 common academic or IELTS-relevant collocations (e.g., "database management", "access the database")
 
-Format your response EXACTLY as follows (do not add extra text or explanations):
+Format your response EXACTLY as follows (do not add extra text, explanations, or markdown):
 
 **Part of Speech:** [pos]
 **Pronunciation:** [ipa]
@@ -40,6 +42,8 @@ Format your response EXACTLY as follows (do not add extra text or explanations):
 **Example:** [example_en]
 **Example Translation:** [example_zh]
 **Chinese:** [translation]
+**Bilingual对照:** [chinese] / [english]
+**IELTS高频词组 (chunk):** [chunk1], [chunk2], [chunk3]
 
 If the input is invalid or unclear, respond with: "Invalid input. Please enter a valid English word or phrase."`;
 
@@ -354,7 +358,7 @@ const ResourceCard: React.FC<ResourceCardProps> = ({ title, items: initialItems,
   );
 };
 
-// --- NEW DictionaryWidget (Rewritten with New Prompt + UI) ---
+// --- ENHANCED DictionaryWidget with IELTS chunks & bilingual对照 ---
 
 const DictionaryWidget: React.FC = () => {
   const [query, setQuery] = useState('');
@@ -409,7 +413,7 @@ const DictionaryWidget: React.FC = () => {
     }
   };
 
-  // Parse result for structured display
+  // Enhanced parser for new fields
   const parseResult = (raw: string) => {
     const lines = raw.split('\n').filter(Boolean);
     const parsed: Record<string, string> = {};
@@ -426,6 +430,10 @@ const DictionaryWidget: React.FC = () => {
         parsed.exampleZh = line.replace('**Example Translation:**', '').trim();
       } else if (line.startsWith('**Chinese:**')) {
         parsed.chinese = line.replace('**Chinese:**', '').trim();
+      } else if (line.startsWith('**Bilingual对照:**')) {
+        parsed.bilingual = line.replace('**Bilingual对照:**', '').trim();
+      } else if (line.startsWith('**IELTS高频词组 (chunk):**')) {
+        parsed.chunks = line.replace('**IELTS高频词组 (chunk):**', '').trim();
       }
     });
     return parsed;
@@ -548,6 +556,18 @@ const DictionaryWidget: React.FC = () => {
                 <div>
                   <span className="font-semibold text-slate-600">Chinese:</span>{' '}
                   <span className="text-slate-800">{parsedResult.chinese}</span>
+                </div>
+              )}
+              {parsedResult.bilingual && (
+                <div>
+                  <span className="font-semibold text-slate-600">Bilingual对照:</span>{' '}
+                  <span className="text-slate-800">{parsedResult.bilingual}</span>
+                </div>
+              )}
+              {parsedResult.chunks && (
+                <div>
+                  <span className="font-semibold text-slate-600">IELTS高频词组:</span>{' '}
+                  <span className="text-slate-800">{parsedResult.chunks}</span>
                 </div>
               )}
             </div>
@@ -817,27 +837,4 @@ const ResourceHub: React.FC = () => {
             ]}
           />
 
-          <div className="md:col-span-2">
-            <ResourceCard
-              title="Speaking"
-              icon={<Mic size={18} className="text-orange-700" />}
-              headerColor="bg-[#E6B89C]/30"
-              items={[
-                { name: 'English with Lucy', url: 'https://www.youtube.com/feed/subscriptions/UCz4tgANd4yy8Oe0iXCdSWfA', note: 'British Pronunciation' },
-                { name: 'IELTS Liz Tips', url: 'https://ieltsliz.com/ielts-speaking-free-lessons-essential-tips/', note: 'Part 1, 2, 3 Strategy' },
-              ]}
-            />
-          </div>
-        </div>
-
-        {/* --- RIGHT: Tools Sidebar (4 Cols) --- */}
-        <div className="lg:col-span-4 space-y-5">
-          <StudyTimer />
-          <DictionaryWidget />
-        </div>
-      </div>
-    </div>
-  );
-};
-
-export default ResourceHub;
+          <div className="md:col-span-2
