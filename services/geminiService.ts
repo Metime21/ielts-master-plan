@@ -1,17 +1,24 @@
 // src/services/geminiService.ts
 
-const fetchGeminiProxy = async (contents: any, config?: any): Promise<any> => {
+/**
+ * 调用本地代理接口 /api/gemini
+ * 注意：代理必须将 systemInstruction 转换为合法的 Google API 格式
+ */
+const fetchGeminiProxy = async (payload: {
+  contents: any[];
+  systemInstruction?: string;
+}): Promise<any> => {
   const response = await fetch('/api/gemini', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ contents, config }),
+    body: JSON.stringify(payload),
   });
 
   if (!response.ok) {
-    const errorData = await response.json();
-    throw new Error(`Proxy failed: ${errorData.error}`);
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(`Proxy failed: ${errorData.error || response.statusText}`);
   }
 
   const data = await response.json();
@@ -23,12 +30,15 @@ const fetchGeminiProxy = async (contents: any, config?: any): Promise<any> => {
   return data;
 };
 
-export const generateGeminiResponse = async (prompt: string, systemInstruction?: string): Promise<string> => {
-  const userMessage = { role: 'user', parts: [{ text: prompt }] };
-  const config = { systemInstruction };
+export const generateGeminiResponse = async (
+  prompt: string,
+  systemInstruction?: string
+): Promise<string> => {
+  const contents = [{ role: 'user', parts: [{ text: prompt }] }];
 
   try {
-    const jsonResponse = await fetchGeminiProxy([userMessage], config);
+    const payload = { contents, systemInstruction }; // ← 不再用 config！
+    const jsonResponse = await fetchGeminiProxy(payload);
     const text = jsonResponse.candidates?.[0]?.content?.parts?.[0]?.text;
 
     if (!text || typeof text !== 'string' || text.trim().length === 0) {
@@ -39,7 +49,7 @@ export const generateGeminiResponse = async (prompt: string, systemInstruction?:
     return text.trim();
   } catch (error) {
     console.error("Gemini Proxy Call Error:", error);
-    return "Sorry, I encountered an error connecting to the AI. Please check your network and try again.";
+    return `Google API returned error: ${error instanceof Error ? error.message : String(error)}`;
   }
 };
 
