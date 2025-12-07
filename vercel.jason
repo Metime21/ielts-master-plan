@@ -1,14 +1,13 @@
 {
   "functions": {
-    "api/gemini-serverless.ts": {
-      "runtime": "@vercel/node@16.x",
+    "api/index.ts": {
       "maxDuration": 60
     }
   },
   "rewrites": [
     {
       "source": "/api/gemini",
-      "destination": "/api/gemini-serverless.ts"
+      "destination": "/api/index.ts"
     }
   ]
 }
