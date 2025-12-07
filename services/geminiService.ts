@@ -1,3 +1,5 @@
+// src/services/geminiService.ts
+
 const fetchGeminiProxy = async (contents: any, config?: any): Promise<any> => {
   const response = await fetch('/api/gemini', {
     method: 'POST',
@@ -29,39 +31,42 @@ export const generateGeminiResponse = async (prompt: string, systemInstruction?:
     const jsonResponse = await fetchGeminiProxy([userMessage], config);
     const text = jsonResponse.candidates?.[0]?.content?.parts?.[0]?.text;
 
-    if (!text || typeof text !== 'string') {
-      return "Sorry, I couldn't generate a response.";
+    if (!text || typeof text !== 'string' || text.trim().length === 0) {
+      console.warn('AI returned empty or invalid response:', jsonResponse);
+      return "Sorry, I couldn't generate a meaningful response. Please try rephrasing your question.";
     }
 
     return text.trim();
   } catch (error) {
     console.error("Gemini Proxy Call Error:", error);
-    return "Sorry, I encountered an error connecting to the AI.";
+    return "Sorry, I encountered an error connecting to the AI. Please check your network and try again.";
   }
 };
 
-export const translateAndDefine = async (text: string): Promise<string> => {
+export const translateAndDefine = async (word: string): Promise<string> => {
   const prompt = `
-Role: Professional English-Chinese Dictionary & IELTS Tutor.
-Target Word/Phrase: "${text}"
+You are an expert IELTS dictionary assistant. Provide a concise answer in Markdown format for the word: "${word}".
 
-Please provide a structured Markdown response with the following sections:
+Include:
+1. **IPA pronunciation** (e.g., /ˈdeɪ.tə/)
+2. **Chinese meaning**
+3. **Brief English definition**
+4. **2-3 IELTS collocations** (with Chinese)
+5. **One example sentence** (English + Chinese translation)
 
-1.  **Phonetics & Meaning**
-    * IPA: /.../
-    * Chinese: [Concise translation]
-    * Definition: [Brief English definition]
-    
-2.  **IELTS High-Frequency Collocations/Phrases** (Crucial: Provide 2-3 relevant phrases)
-    * [Phrase 1] - [Chinese]
-    * [Phrase 2] - [Chinese]
-    
-3.  **Example Sentence**
-    * [Sentence containing the word]
-    * ([Chinese translation of sentence])
-
-Keep the output clean and strictly formatted for easy reading.
+Keep it clean and structured.
 `;
 
-  return await generateGeminiResponse(prompt, "You are a helpful and professional IELTS Dictionary assistant.");
+  try {
+    const responseText = await generateGeminiResponse(prompt, "Be accurate, concise, and helpful.");
+    
+    if (!responseText || responseText.trim().length === 0) {
+      return "Definition search failed. The AI returned no content. Please try again.";
+    }
+
+    return responseText;
+  } catch (error) {
+    console.error("TranslateAndDefine Error:", error);
+    return "Definition search failed. Please check your API connection or try again.";
+  }
 };
