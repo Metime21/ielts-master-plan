@@ -1,7 +1,0 @@
-{
-  "functions": {
-    "api/gemini.ts": {
-      "maxDuration": 60
-    }
-  }
-}
