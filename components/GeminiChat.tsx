@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Send, Sparkles, X } from 'lucide-react';
 import { ChatMessage } from '../types';
-import { generateGeminiResponse } from '../services/geminiservices';
+import { generateGeminiResponse } from '../services/geminiServices';
 
 const GeminiChat: React.FC = () => {
   const [messages, setMessages] = useState<ChatMessage[]>([
