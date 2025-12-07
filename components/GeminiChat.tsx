@@ -32,7 +32,7 @@ const GeminiChat: React.FC = () => {
   // 判断是否可能是雅思作文
   const isLikelyIELTSEssay = (text: string): boolean => {
     const trimmed = text.trim();
-    if (trimmed.length < 120) return false; // 太短不是作文
+    if (trimmed.length < 120) return false;
 
     const lower = trimmed.toLowerCase();
     const essayKeywords = [
@@ -40,7 +40,6 @@ const GeminiChat: React.FC = () => {
       'agree or disagree', 'problem and solution', 'advantages and disadvantages'
     ];
 
-    // 检查是否包含典型 Task 2 指令词 或 多个句子
     const hasKeyword = essayKeywords.some(kw => lower.includes(kw));
     const sentenceCount = trimmed.split(/[.!?]+/).filter(s => s.trim().length > 10).length;
 
@@ -62,7 +61,6 @@ const GeminiChat: React.FC = () => {
     setIsTyping(true);
 
     try {
-      // 基础考官角色设定（Gemini 能清晰理解的结构化指令）
       let systemInstruction = `
 You are an official IELTS examiner certified by Cambridge Assessment English with over 15 years of experience. You were also a Band 9 IELTS candidate yourself. Respond as a professional human tutor — never mention you are an AI.
 
@@ -85,7 +83,6 @@ Your responses MUST follow these rules:
 4. **Never use markdown**. Use plain text with clear line breaks.
 `;
 
-      // 如果检测到可能是作文，追加批改指令
       if (isLikelyIELTSEssay(input)) {
         systemInstruction += `
 
@@ -179,7 +176,7 @@ Your responses MUST follow these rules:
 
           <div className="p-3 bg-white border-t border-slate-100 flex gap-2">
             <input
-              type="text",
+              type="text"
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleSend()}
