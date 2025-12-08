@@ -4,14 +4,14 @@ type ChatMessage = { role: 'user' | 'assistant'; content: string };
 
 /**
  * 调用本地代理接口 /api/gemini
- * 注意：现在代理必须接收 Qwen 格式的 { messages, systemInstruction }
+ * 接收标准 messages 数组和可选 systemInstruction
  */
 const fetchGeminiProxy = async (payload: {
   messages: ChatMessage[];
   systemInstruction?: string;
 }): Promise<any> => {
   const response = await fetch('/api/gemini', {
-    method: '??POST',
+    method: 'POST',
     headers: {
       'Content-Type': 'application/json',
     },
@@ -33,9 +33,13 @@ const fetchGeminiProxy = async (payload: {
 };
 
 /**
- * 重载 generateGeminiResponse：
- * - 如果第一个参数是 string → 单轮模式（用于字典）
- * - 如果第一个参数是数组 → 多轮上下文模式（用于聊天）
+ * 生成 AI 响应
+ * 
+ * 支持两种调用方式：
+ * 1. generateGeminiResponse(prompt: string, systemInstruction?) → 用于字典等单轮场景
+ * 2. generateGeminiResponse(messages: ChatMessage[], systemInstruction?) → 用于多轮聊天
+ * 
+ * ❌ 不接受 { contents: [...] } 等 Google Gemini 格式
  */
 export const generateGeminiResponse = async (
   input: string | ChatMessage[],
@@ -44,11 +48,15 @@ export const generateGeminiResponse = async (
   let messages: ChatMessage[];
 
   if (typeof input === 'string') {
-    // 单轮模式（字典、简单问答）
+    // 单轮模式：字典、简单问答
     messages = [{ role: 'user', content: input }];
-  } else {
-    // 多轮模式（聊天上下文）
+  } else if (Array.isArray(input)) {
+    // 多轮模式：聊天上下文
     messages = input;
+  } else {
+    // 防御性编程：拒绝非法输入（如 { contents: [...] }）
+    console.error('[geminiService] Invalid input type:', input);
+    throw new Error('Invalid input to generateGeminiResponse: must be string or ChatMessage[]');
   }
 
   try {
@@ -68,6 +76,10 @@ export const generateGeminiResponse = async (
   }
 };
 
+/**
+ * 字典查询专用函数
+ * 使用单条 prompt + 固定系统指令
+ */
 export const translateAndDefine = async (word: string): Promise<string> => {
   const prompt = `
 You are an expert IELTS dictionary assistant. Provide a concise answer in Markdown format for the word: "${word}".
