@@ -2,7 +2,7 @@
 import { VercelRequest, VercelResponse } from '@vercel/node';
 
 const DASHSCOPE_API_KEY = process.env.DASHSCOPE_API_KEY;
-const MODEL = 'qwen-max'; // qwen-max supports full context and system role
+const MODEL = 'qwen-max';
 
 if (!DASHSCOPE_API_KEY) {
   console.error('[FATAL] DASHSCOPE_API_KEY is missing');
@@ -19,7 +19,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     const { messages, systemInstruction } = req.body;
 
-    // Validate messages format
     if (!Array.isArray(messages) || messages.length === 0) {
       return res.status(400).json({ error: 'Invalid messages format' });
     }
@@ -33,7 +32,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
     }
 
-    // ✅ Inject system instruction as the first message (Qwen requirement)
     let fullMessages = messages;
     if (typeof systemInstruction === 'string' && systemInstruction.trim() !== '') {
       fullMessages = [
@@ -42,9 +40,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       ];
     }
 
-    // ⏱️ Increased timeout to 25 seconds to accommodate complex IELTS tasks
+    // ✅ Increased to 55 seconds — safe for full IELTS essay analysis
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 25000); // 25s timeout
+    const timeoutId = setTimeout(() => controller.abort(), 55000);
 
     const response = await fetch('https://dashscope.aliyuncs.com/api/v1/services/aigc/text-generation/generation', {
       method: 'POST',
@@ -59,6 +57,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         },
         parameters: {
           result_format: 'message',
+          max_tokens: 2048,    // ✅ Prevent output truncation
+          temperature: 0.3,    // Optional: for consistency
         },
       }),
       signal: controller.signal,
@@ -73,31 +73,32 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     const data = await response.json();
-
-    // ✅ Enhanced safety check for AI output structure
     const output = data.output?.choices?.[0]?.message?.content;
+
     if (typeof output !== 'string' || output.trim() === '') {
-      console.warn('Qwen returned empty, non-string, or unexpected response:', JSON.stringify(data, null, 2));
+      console.warn('Qwen returned empty or invalid response:', JSON.stringify(data, null, 2));
       return res.status(502).json({
-        error: 'AI returned invalid or empty response',
-        candidates: [{ content: { parts: [{ text: 'Sorry, I cannot provide a valid response at this time.' }] }, role: 'model' }],
+        error: 'AI returned invalid response',
+        candidates: [{
+          content: {
+            parts: [{ text: 'Sorry, I cannot generate a valid response right now.' }],
+            role: 'model',
+          },
+        }],
       });
     }
 
     const tokenUsage = data.usage || { input_tokens: 0, output_tokens: 0, total_tokens: 0 };
 
-    // Return in Gemini-compatible format for frontend
     return res.status(200).json({
-      candidates: [
-        {
-          content: {
-            parts: [{ text: output.trim() }],
-            role: 'model',
-          },
-          finishReason: 'STOP',
-          index: 0,
+      candidates: [{
+        content: {
+          parts: [{ text: output.trim() }],
+          role: 'model',
         },
-      ],
+        finishReason: 'STOP',
+        index: 0,
+      }],
       usageMetadata: {
         promptTokenCount: tokenUsage.input_tokens,
         candidatesTokenCount: tokenUsage.output_tokens,
@@ -106,8 +107,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     });
   } catch (error: any) {
     if (error.name === 'AbortError') {
-      console.warn('[Qwen] Request timed out after 25s');
-      return res.status(504).json({ error: 'AI response timed out. Please try again.' });
+      console.warn('[Qwen] Request timed out after 55s');
+      return res.status(504).json({ 
+        error: 'AI response timed out. Full essay analysis may take up to one minute. Please try again or check your internet connection.' 
+      });
     }
     console.error('Server Error:', error);
     return res.status(500).json({ error: 'Internal server error' });
