@@ -2,7 +2,7 @@
 import { VercelRequest, VercelResponse } from '@vercel/node';
 
 const DASHSCOPE_API_KEY = process.env.DASHSCOPE_API_KEY;
-const MODEL = 'qwen-max'; // qwen-max supports full context
+const MODEL = 'qwen-max'; // qwen-max supports full context and system role
 
 if (!DASHSCOPE_API_KEY) {
   console.error('[FATAL] DASHSCOPE_API_KEY is missing');
@@ -19,7 +19,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     const { messages, systemInstruction } = req.body;
 
-    // 验证 messages 格式
+    // Validate messages format
     if (!Array.isArray(messages) || messages.length === 0) {
       return res.status(400).json({ error: 'Invalid messages format' });
     }
@@ -33,8 +33,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
     }
 
-    // 确保 system 是字符串，避免 undefined
-    const system = typeof systemInstruction === 'string' ? systemInstruction : '';
+    // ✅ Inject system instruction as the first message (Qwen requirement)
+    let fullMessages = messages;
+    if (typeof systemInstruction === 'string' && systemInstruction.trim() !== '') {
+      fullMessages = [
+        { role: 'system', content: systemInstruction.trim() },
+        ...messages
+      ];
+    }
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 9000); // 9s timeout
@@ -48,8 +54,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       body: JSON.stringify({
         model: MODEL,
         input: {
-          messages,
-          system, // ✅ 正确方式：system 放在 input.system
+          messages: fullMessages,
         },
         parameters: {
           result_format: 'message',
@@ -68,14 +73,24 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const data = await response.json();
 
-    const output = data.output?.choices?.[0]?.message?.content || '';
+    // ✅ Enhanced safety check for AI output structure
+    const output = data.output?.choices?.[0]?.message?.content;
+    if (typeof output !== 'string' || output.trim() === '') {
+      console.warn('Qwen returned empty, non-string, or unexpected response:', JSON.stringify(data, null, 2));
+      return res.status(502).json({
+        error: 'AI returned invalid or empty response',
+        candidates: [{ content: { parts: [{ text: 'Sorry, I cannot provide a valid response at this time.' }] }, role: 'model' }],
+      });
+    }
+
     const tokenUsage = data.usage || { input_tokens: 0, output_tokens: 0, total_tokens: 0 };
 
+    // Return in Gemini-compatible format for frontend
     return res.status(200).json({
       candidates: [
         {
           content: {
-            parts: [{ text: output }],
+            parts: [{ text: output.trim() }],
             role: 'model',
           },
           finishReason: 'STOP',
