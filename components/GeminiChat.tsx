@@ -4,12 +4,12 @@ import { ChatMessage } from '../types';
 import { generateGeminiResponse } from '../services/geminiService';
 
 const GeminiChat: React.FC = () => {
-  // 注意：现在 messages 存的是 { role, content } 格式，用于发送给 API
+  // 仅存储 user / assistant 消息（用于发送给 API）
   const [chatHistory, setChatHistory] = useState<
     { role: 'user' | 'assistant'; content: string }[]
   >([]);
 
-  // 用于 UI 显示的消息（兼容原有 ChatMessage 类型）
+  // 用于 UI 显示的消息
   const [displayMessages, setDisplayMessages] = useState<ChatMessage[]>([
     {
       id: 'init',
@@ -66,7 +66,7 @@ const GeminiChat: React.FC = () => {
     };
     setDisplayMessages(prev => [...prev, userMsg]);
 
-    // 构建 system instruction
+    // 构建系统指令（不再放入 messages）
     let systemInstruction = `
 You are an official IELTS examiner certified by Cambridge Assessment English with over 15 years of experience. You were also a Band 9 IELTS candidate yourself. Respond as a professional human tutor — never mention you are an AI.
 
@@ -106,14 +106,13 @@ Your responses MUST follow these rules:
     }
 
     try {
-      // 构建完整消息列表：system + 历史 + 新用户消息
+      // 构建仅含 user/assistant 的消息历史（不含 system）
       const fullMessages = [
-        { role: 'system' as const, content: systemInstruction },
         ...chatHistory,
-        { role: 'user' as const, content: userText }
+        { role: 'user', content: userText }
       ];
 
-      const responseText = await generateGeminiResponse(fullMessages);
+      const responseText = await generateGeminiResponse(fullMessages, systemInstruction);
 
       // 更新聊天历史（用于下次请求）
       setChatHistory(prev => [
@@ -122,7 +121,7 @@ Your responses MUST follow these rules:
         { role: 'assistant', content: responseText }
       ]);
 
-      // 更新显示消息
+      // 更新 UI 显示
       const botMsg: ChatMessage = {
         id: (Date.now() + 1).toString(),
         role: 'model',
