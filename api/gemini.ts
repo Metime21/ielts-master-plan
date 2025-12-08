@@ -33,7 +33,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
     }
 
-    // 确保 systemInstruction 是字符串
+    // 确保 system 是字符串，避免 undefined
     const system = typeof systemInstruction === 'string' ? systemInstruction : '';
 
     const controller = new AbortController();
