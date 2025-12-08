@@ -836,7 +836,20 @@ const ResourceHub: React.FC = () => {
             icon={<Mic size={18} className="text-orange-700" />}
             headerColor="bg-[#E6B89C]/30"
             items={[
-              { name: 'English with Lucy', url: 'https://www.youtube.com/feed/subscriptions/UCz4tgANd4yy8Oe0iXCdSWfA', note: 'British Pronunciation' },
+              { name: 'English with Lucy', url: 'https://www.youtube.com/@EnglishwithLucy', note: 'British Pronunciation' },
               { name: 'IELTS Liz Tips', url: 'https://ieltsliz.com/ielts-speaking-free-lessons-essential-tips/', note: 'Part 1, 2, 3 Strategy' },
             ]}
-         
+          />
+        </div>
+
+        {/* --- RIGHT: Tools Column (4 Cols) — FIXED ORDER --- */}
+        <div className="lg:col-span-4 space-y-5">
+          <StudyTimer />
+          <DictionaryWidget />
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default ResourceHub;
