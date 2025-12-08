@@ -34,40 +34,8 @@ const GeminiChat: React.FC = () => {
     }
   }, [displayMessages, isOpen]);
 
-  const isLikelyIELTSEssay = (text: string): boolean => {
-    const trimmed = text.trim();
-    if (trimmed.length < 120) return false;
-
-    const lower = trimmed.toLowerCase();
-    const essayKeywords = [
-      'essay', 'writing task', 'to what extent', 'discuss both views',
-      'agree or disagree', 'problem and solution', 'advantages and disadvantages'
-    ];
-
-    const hasKeyword = essayKeywords.some(kw => lower.includes(kw));
-    const sentenceCount = trimmed.split(/[.!?]+/).filter(s => s.trim().length > 10).length;
-
-    return hasKeyword || sentenceCount >= 4;
-  };
-
-  const handleSend = async () => {
-    if (!input.trim()) return;
-
-    const userText = input.trim();
-    setInput('');
-    setIsTyping(true);
-
-    // 添加用户消息到显示列表
-    const userMsg: ChatMessage = {
-      id: Date.now().toString(),
-      role: 'user',
-      text: userText,
-      timestamp: Date.now()
-    };
-    setDisplayMessages(prev => [...prev, userMsg]);
-
-    // 构建系统指令（不再放入 messages）
-    let systemInstruction = `
+  // ✅ 简化并固定 system instruction（避免每次请求都变长）
+  const SYSTEM_INSTRUCTION = `
 You are an official IELTS examiner certified by Cambridge Assessment English with over 15 years of experience. You were also a Band 9 IELTS candidate yourself. Respond as a professional human tutor — never mention you are an AI.
 
 Your responses MUST follow these rules:
@@ -87,12 +55,8 @@ Your responses MUST follow these rules:
    - Use academic but clear language.
 
 4. **Never use markdown**. Use plain text with clear line breaks.
-`;
 
-    if (isLikelyIELTSEssay(userText)) {
-      systemInstruction += `
-
-5. **The user has likely submitted an IELTS Writing Task 2 essay. You must**:
+5. **If the user submits an IELTS Writing Task 2 essay**, you must:
    - Assess it using official IELTS Band Descriptors across four criteria:
      • Task Response (TR)
      • Coherence and Cohesion (CC)
@@ -103,18 +67,34 @@ Your responses MUST follow these rules:
    - Rewrite 2 key sentences to Band 9 level, explaining why they are stronger.
    - Keep feedback constructive and pedagogical.
 `;
-    }
+
+  const handleSend = async () => {
+    if (!input.trim()) return;
+
+    const userText = input.trim();
+    setInput('');
+    setIsTyping(true);
+
+    // 添加用户消息到显示列表
+    const userMsg: ChatMessage = {
+      id: Date.now().toString(),
+      role: 'user',
+      text: userText,
+      timestamp: Date.now()
+    };
+    setDisplayMessages(prev => [...prev, userMsg]);
 
     try {
-      // 构建仅含 user/assistant 的消息历史（不含 system）
+      // 构建消息历史（仅 user/assistant）
       const fullMessages = [
         ...chatHistory,
         { role: 'user', content: userText }
       ];
 
-      const responseText = await generateGeminiResponse(fullMessages, systemInstruction);
+      // ✅ 固定 systemInstruction，不再动态拼接
+      const responseText = await generateGeminiResponse(fullMessages, SYSTEM_INSTRUCTION);
 
-      // 更新聊天历史（用于下次请求）
+      // 更新聊天历史
       setChatHistory(prev => [
         ...prev,
         { role: 'user', content: userText },
