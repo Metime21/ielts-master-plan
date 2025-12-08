@@ -15,14 +15,15 @@ const GeminiChat: React.FC = () => {
       id: 'init',
       role: 'model',
       text: 'Hello! I am your IELTS AI Assistant. Ask me about writing ideas, speaking topics, or grammar corrections.',
-      timestamp: Date.now()
-    }
+      timestamp: Date.now(),
+    },
   ]);
 
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -34,42 +35,28 @@ const GeminiChat: React.FC = () => {
     }
   }, [displayMessages, isOpen]);
 
-  // ✅ 简化并固定 system instruction（避免每次请求都变长）
+  // ✅ 精简但完整的 system instruction（保留所有专家能力，减少 token）
   const SYSTEM_INSTRUCTION = `
-You are an official IELTS examiner certified by Cambridge Assessment English with over 15 years of experience. You were also a Band 9 IELTS candidate yourself. Respond as a professional human tutor — never mention you are an AI.
+You are an official IELTS examiner certified by Cambridge Assessment English with over 15 years of experience and a former Band 9 candidate. Respond as a professional human tutor — never mention you are an AI.
 
-Your responses MUST follow these rules:
-
-1. **Always reply in bilingual format**: 
-   - First, write the complete response in **English**.
-   - Then, on a new line, write "**中文翻译:**" followed by a clear and natural **Chinese translation**.
-
-2. **For grammar or sentence corrections**:
-   - Clearly quote the problematic phrase.
-   - Explain the error type (e.g., article misuse, tense error, awkward collocation).
-   - Provide the corrected version.
-   - Optionally, give a Band 8–9 upgrade with explanation.
-
-3. **For general IELTS questions** (e.g., speaking ideas, vocabulary):
-   - Give structured, high-level answers with examples.
-   - Use academic but clear language.
-
-4. **Never use markdown**. Use plain text with clear line breaks.
-
-5. **If the user submits an IELTS Writing Task 2 essay**, you must:
-   - Assess it using official IELTS Band Descriptors across four criteria:
-     • Task Response (TR)
-     • Coherence and Cohesion (CC)
-     • Lexical Resource (LR)
-     • Grammatical Range and Accuracy (GRA)
-   - Give a realistic band score (e.g., "Overall Band: 6.5") with justification.
-   - Highlight 2–3 specific weaknesses.
-   - Rewrite 2 key sentences to Band 9 level, explaining why they are stronger.
-   - Keep feedback constructive and pedagogical.
+Rules:
+1. Always reply in bilingual format:
+   - First, full response in English.
+   - Then, on a new line: "中文翻译:" + natural Chinese translation.
+2. For grammar: quote error, explain type (e.g., tense/article), correct it, optionally upgrade to Band 8–9.
+3. For Writing Task 2: assess TR/CC/LR/GRA, give band score, highlight 2–3 weaknesses, rewrite 2 sentences to Band 9.
+4. For speaking: give structured ideas, vocabulary, sample answers.
+5. Use plain text only — no markdown.
 `;
 
+  // ✅ 截断历史消息（保留最近 6 条交互，防止上下文过长）
+  const trimHistory = (history: { role: string; content: string }[]) => {
+    // 保留最多 6 条消息（3 轮对话），优先保留最近的
+    return history.length > 6 ? history.slice(-6) : history;
+  };
+
   const handleSend = async () => {
-    if (!input.trim()) return;
+    if (!input.trim() || isTyping) return; // ✅ 防止重复提交
 
     const userText = input.trim();
     setInput('');
@@ -77,51 +64,65 @@ Your responses MUST follow these rules:
 
     // 添加用户消息到显示列表
     const userMsg: ChatMessage = {
-      id: Date.now().toString(),
+      id: `msg-${Date.now()}`,
       role: 'user',
       text: userText,
-      timestamp: Date.now()
+      timestamp: Date.now(),
     };
-    setDisplayMessages(prev => [...prev, userMsg]);
+    setDisplayMessages((prev) => [...prev, userMsg]);
 
     try {
-      // 构建消息历史（仅 user/assistant）
-      const fullMessages = [
+      // 构建并截断消息历史
+      const trimmedHistory = trimHistory([
         ...chatHistory,
-        { role: 'user', content: userText }
-      ];
-
-      // ✅ 固定 systemInstruction，不再动态拼接
-      const responseText = await generateGeminiResponse(fullMessages, SYSTEM_INSTRUCTION);
-
-      // 更新聊天历史
-      setChatHistory(prev => [
-        ...prev,
         { role: 'user', content: userText },
-        { role: 'assistant', content: responseText }
       ]);
 
-      // 更新 UI 显示
+      const responseText = await generateGeminiResponse(
+        trimmedHistory,
+        SYSTEM_INSTRUCTION
+      );
+
+      // 更新聊天历史（也做截断）
+      setChatHistory((prev) => trimHistory([...prev, { role: 'user', content: userText }, { role: 'assistant', content: responseText }]));
+
       const botMsg: ChatMessage = {
-        id: (Date.now() + 1).toString(),
+        id: `msg-${Date.now() + 1}`,
         role: 'model',
         text: responseText,
-        timestamp: Date.now()
+        timestamp: Date.now(),
       };
-      setDisplayMessages(prev => [...prev, botMsg]);
-    } catch (error) {
+      setDisplayMessages((prev) => [...prev, botMsg]);
+    } catch (error: any) {
       console.error('GeminiChat Error:', error);
+
+      let errorMsgText = 'Oops! Something went wrong. Please try again.';
+      if (error.message?.includes('timed out')) {
+        errorMsgText = 'The AI is taking longer than expected. Please try again in a moment.';
+      } else if (error.message?.includes('network')) {
+        errorMsgText = 'Network error. Please check your connection and try again.';
+      }
+
       const errorMsg: ChatMessage = {
-        id: (Date.now() + 2).toString(),
+        id: `msg-${Date.now() + 2}`,
         role: 'model',
-        text: 'Oops! Something went wrong. Please check your network or try again later.',
-        timestamp: Date.now()
+        text: errorMsgText,
+        timestamp: Date.now(),
       };
-      setDisplayMessages(prev => [...prev, errorMsg]);
+      setDisplayMessages((prev) => [...prev, errorMsg]);
     } finally {
       setIsTyping(false);
     }
   };
+
+  // ✅ 清理 AbortController（可选，如果你的 geminiService 支持 signal）
+  useEffect(() => {
+    return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
+  }, []);
 
   return (
     <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end">
@@ -183,6 +184,7 @@ Your responses MUST follow these rules:
               onKeyDown={(e) => e.key === 'Enter' && handleSend()}
               placeholder="Ask me anything..."
               className="flex-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-academic-500"
+              disabled={isTyping}
             />
             <button
               onClick={handleSend}
