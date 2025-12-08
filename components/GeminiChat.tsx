@@ -47,15 +47,14 @@ Rules:
 5. Use plain text only — no markdown.
 `;
 
-  // 截断历史（最多保留最近 6 条消息）
+  // ✅ 扩展上下文窗口：保留最近 12 条消息（支持 6 轮完整对话）
   const trimHistory = (history: { role: string; content: string }[]) => {
-    return history.length > 6 ? history.slice(-6) : history;
+    return history.length > 12 ? history.slice(-12) : history;
   };
 
   const handleSend = async () => {
     if (!input.trim() || isTyping) return;
 
-    // ✅ 取消上一个未完成的请求
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
     }
@@ -80,14 +79,12 @@ Rules:
         { role: 'user', content: userText },
       ]);
 
-      // ✅ 传入 signal，支持取消
       const responseText = await generateGeminiResponse(
         trimmedHistory,
         SYSTEM_INSTRUCTION,
         controller.signal
       );
 
-      // 如果被取消，不更新 UI
       if (controller.signal.aborted) return;
 
       setChatHistory((prev) =>
@@ -106,7 +103,6 @@ Rules:
       };
       setDisplayMessages((prev) => [...prev, botMsg]);
     } catch (error: any) {
-      // 如果是主动取消，不显示错误
       if (error.name === 'AbortError') {
         return;
       }
@@ -115,7 +111,7 @@ Rules:
 
       let errorMsgText = 'Oops! Something went wrong. Please try again.';
       if (error.message?.includes('timed out')) {
-        errorMsgText = 'The AI is taking longer than expected. Please try again in a moment.';
+        errorMsgText = 'The AI is taking longer than expected. Please:\n• Keep requests simple\n• Split into smaller steps\n• Avoid asking for full rewrite + feedback at once';
       } else if (error.message?.includes('network')) {
         errorMsgText = 'Network error. Please check your connection and try again.';
       }
@@ -132,7 +128,6 @@ Rules:
     }
   };
 
-  // 清理：组件卸载时取消请求
   useEffect(() => {
     return () => {
       if (abortControllerRef.current) {
