@@ -54,7 +54,6 @@ const GeminiChat: React.FC = () => {
     }
   }, [isOpen]);
 
-  // ✅ 保留专业能力，精简 token（适配 qwen-max 的高效输入）
   const SYSTEM_INSTRUCTION = `
 You are a Cambridge IELTS examiner. Always:
 1. Respond in English first.
@@ -65,7 +64,6 @@ You are a Cambridge IELTS examiner. Always:
 No markdown. No mixed languages. Keep under 600 words.
 `;
 
-  // 智能裁剪：避免历史累积，但保留最新上下文
   const smartTrimContext = (messages: { role: string; content: string }[]) => {
     return messages.length > 4 ? messages.slice(-4) : messages;
   };
@@ -172,19 +170,10 @@ No markdown. No mixed languages. Keep under 600 words.
 
   const currentConv = conversations.find(c => c.id === currentConvId);
 
-  return (
-    <div className="fixed inset-0 z-50 flex justify-end">
-      {!isOpen ? (
-        <button
-          onClick={() => setIsOpen(true)}
-          className="fixed bottom-6 right-6 bg-academic-800 text-white px-5 py-3 rounded-full shadow-xl hover:shadow-2xl hover:bg-academic-900 transition-all flex items-center gap-3 group"
-        >
-          <div className="bg-accent-500 p-1.5 rounded-full text-white group-hover:rotate-12 transition-transform shadow-inner">
-            <Sparkles size={20} />
-          </div>
-          <span className="font-bold text-base">IELTS AI Tutor</span>
-        </button>
-      ) : (
+  // ✅ 修复：仅在 isOpen 时渲染全屏覆盖层
+  if (isOpen) {
+    return (
+      <div className="fixed inset-0 z-50 flex justify-end">
         <div className="flex w-full max-w-4xl h-[90vh] mt-6 mr-6">
           {/* 左侧：最近对话 */}
           <div className="w-64 bg-gray-50 border-r border-gray-200 rounded-l-2xl overflow-hidden flex flex-col">
@@ -292,8 +281,21 @@ No markdown. No mixed languages. Keep under 600 words.
             </div>
           </div>
         </div>
-      )}
-    </div>
+      </div>
+    );
+  }
+
+  // ✅ 关闭状态：只渲染悬浮按钮，不占用全屏
+  return (
+    <button
+      onClick={() => setIsOpen(true)}
+      className="fixed bottom-6 right-6 bg-academic-800 text-white px-5 py-3 rounded-full shadow-xl hover:shadow-2xl hover:bg-academic-900 transition-all flex items-center gap-3 group z-50"
+    >
+      <div className="bg-accent-500 p-1.5 rounded-full text-white group-hover:rotate-12 transition-transform shadow-inner">
+        <Sparkles size={20} />
+      </div>
+      <span className="font-bold text-base">IELTS AI Tutor</span>
+    </button>
   );
 };
 
