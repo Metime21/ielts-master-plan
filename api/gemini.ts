@@ -2,7 +2,7 @@
 import { VercelRequest, VercelResponse } from '@vercel/node';
 
 const DASHSCOPE_API_KEY = process.env.DASHSCOPE_API_KEY;
-const MODEL = 'qwen-max'; // 可选: qwen-plus, qwen-turbo
+const MODEL = 'qwen-max'; // qwen-max supports full context
 
 if (!DASHSCOPE_API_KEY) {
   console.error('[FATAL] DASHSCOPE_API_KEY is missing');
@@ -17,25 +17,24 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
-    const { contents, systemInstruction } = req.body;
+    const { messages } = req.body; // Now expects full message array including system
 
-    if (!contents || !Array.isArray(contents)) {
-      return res.status(400).json({ error: 'Invalid input format' });
+    if (!Array.isArray(messages) || messages.length === 0) {
+      return res.status(400).json({ error: 'Invalid messages format' });
     }
 
-    // 转换 Gemini 格式 → Qwen 格式
-    const messages = contents.map((part: any) => ({
-      role: part.role === 'model' ? 'assistant' : 'user',
-      content: part.parts?.[0]?.text || '',
-    }));
-
-    // 添加 systemInstruction（如果存在）
-    if (systemInstruction && typeof systemInstruction === 'string') {
-      messages.unshift({
-        role: 'system',
-        content: systemInstruction,
-      });
+    // Validate message structure
+    for (const msg of messages) {
+      if (!['system', 'user', 'assistant'].includes(msg.role)) {
+        return res.status(400).json({ error: 'Invalid message role' });
+      }
+      if (typeof msg.content !== 'string') {
+        return res.status(400).json({ error: 'Message content must be string' });
+      }
     }
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 9000); // 9s timeout
 
     const response = await fetch('https://dashscope.aliyuncs.com/api/v1/services/aigc/text-generation/generation', {
       method: 'POST',
@@ -52,17 +51,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           result_format: 'message',
         },
       }),
+      signal: controller.signal,
     });
 
+    clearTimeout(timeoutId);
+
     if (!response.ok) {
-      const errorText = await response.text();
-      console.error('Qwen API Error:', errorText);
+      const errorText = await response.text().catch(() => 'Unknown error');
+      console.error('Qwen API HTTP Error:', response.status, errorText);
       return res.status(response.status).json({ error: 'Failed to call Qwen API', details: errorText });
     }
 
     const data = await response.json();
 
-    // 转换回 Gemini 兼容格式
     const output = data.output?.choices?.[0]?.message?.content || '';
     const tokenUsage = data.usage || { input_tokens: 0, output_tokens: 0, total_tokens: 0 };
 
@@ -83,7 +84,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         totalTokenCount: tokenUsage.total_tokens,
       },
     });
-  } catch (error) {
+  } catch (error: any) {
+    if (error.name === 'AbortError') {
+      console.warn('[Qwen] Request timed out');
+      return res.status(504).json({ error: 'AI response timed out. Please try again.' });
+    }
     console.error('Server Error:', error);
     return res.status(500).json({ error: 'Internal server error' });
   }
