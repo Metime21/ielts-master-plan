@@ -4,12 +4,10 @@ import { ChatMessage } from '../types';
 import { generateGeminiResponse } from '../services/geminiService';
 
 const GeminiChat: React.FC = () => {
-  // 仅存储 user / assistant 消息（用于发送给 API）
   const [chatHistory, setChatHistory] = useState<
     { role: 'user' | 'assistant'; content: string }[]
   >([]);
 
-  // 用于 UI 显示的消息
   const [displayMessages, setDisplayMessages] = useState<ChatMessage[]>([
     {
       id: 'init',
@@ -35,7 +33,7 @@ const GeminiChat: React.FC = () => {
     }
   }, [displayMessages, isOpen]);
 
-  // ✅ 精简但完整的 system instruction（保留所有专家能力，减少 token）
+  // ✅ 精简但完整的 system instruction（保留所有专家能力）
   const SYSTEM_INSTRUCTION = `
 You are an official IELTS examiner certified by Cambridge Assessment English with over 15 years of experience and a former Band 9 candidate. Respond as a professional human tutor — never mention you are an AI.
 
@@ -49,20 +47,25 @@ Rules:
 5. Use plain text only — no markdown.
 `;
 
-  // ✅ 截断历史消息（保留最近 6 条交互，防止上下文过长）
+  // 截断历史（最多保留最近 6 条消息）
   const trimHistory = (history: { role: string; content: string }[]) => {
-    // 保留最多 6 条消息（3 轮对话），优先保留最近的
     return history.length > 6 ? history.slice(-6) : history;
   };
 
   const handleSend = async () => {
-    if (!input.trim() || isTyping) return; // ✅ 防止重复提交
+    if (!input.trim() || isTyping) return;
+
+    // ✅ 取消上一个未完成的请求
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
 
     const userText = input.trim();
     setInput('');
     setIsTyping(true);
 
-    // 添加用户消息到显示列表
     const userMsg: ChatMessage = {
       id: `msg-${Date.now()}`,
       role: 'user',
@@ -72,19 +75,28 @@ Rules:
     setDisplayMessages((prev) => [...prev, userMsg]);
 
     try {
-      // 构建并截断消息历史
       const trimmedHistory = trimHistory([
         ...chatHistory,
         { role: 'user', content: userText },
       ]);
 
+      // ✅ 传入 signal，支持取消
       const responseText = await generateGeminiResponse(
         trimmedHistory,
-        SYSTEM_INSTRUCTION
+        SYSTEM_INSTRUCTION,
+        controller.signal
       );
 
-      // 更新聊天历史（也做截断）
-      setChatHistory((prev) => trimHistory([...prev, { role: 'user', content: userText }, { role: 'assistant', content: responseText }]));
+      // 如果被取消，不更新 UI
+      if (controller.signal.aborted) return;
+
+      setChatHistory((prev) =>
+        trimHistory([
+          ...prev,
+          { role: 'user', content: userText },
+          { role: 'assistant', content: responseText },
+        ])
+      );
 
       const botMsg: ChatMessage = {
         id: `msg-${Date.now() + 1}`,
@@ -94,6 +106,11 @@ Rules:
       };
       setDisplayMessages((prev) => [...prev, botMsg]);
     } catch (error: any) {
+      // 如果是主动取消，不显示错误
+      if (error.name === 'AbortError') {
+        return;
+      }
+
       console.error('GeminiChat Error:', error);
 
       let errorMsgText = 'Oops! Something went wrong. Please try again.';
@@ -115,7 +132,7 @@ Rules:
     }
   };
 
-  // ✅ 清理 AbortController（可选，如果你的 geminiService 支持 signal）
+  // 清理：组件卸载时取消请求
   useEffect(() => {
     return () => {
       if (abortControllerRef.current) {
