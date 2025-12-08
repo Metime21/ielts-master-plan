@@ -42,8 +42,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       ];
     }
 
+    // ⏱️ Increased timeout to 25 seconds to accommodate complex IELTS tasks
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 9000); // 9s timeout
+    const timeoutId = setTimeout(() => controller.abort(), 25000); // 25s timeout
 
     const response = await fetch('https://dashscope.aliyuncs.com/api/v1/services/aigc/text-generation/generation', {
       method: 'POST',
@@ -105,7 +106,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     });
   } catch (error: any) {
     if (error.name === 'AbortError') {
-      console.warn('[Qwen] Request timed out');
+      console.warn('[Qwen] Request timed out after 25s');
       return res.status(504).json({ error: 'AI response timed out. Please try again.' });
     }
     console.error('Server Error:', error);
