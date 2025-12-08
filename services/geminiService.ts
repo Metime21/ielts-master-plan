@@ -1,15 +1,17 @@
 // src/services/geminiService.ts
 
+type ChatMessage = { role: 'user' | 'assistant'; content: string };
+
 /**
  * 调用本地代理接口 /api/gemini
- * 注意：代理必须将 systemInstruction 转换为合法的 Google API 格式
+ * 注意：现在代理必须接收 Qwen 格式的 { messages, systemInstruction }
  */
 const fetchGeminiProxy = async (payload: {
-  contents: any[];
+  messages: ChatMessage[];
   systemInstruction?: string;
 }): Promise<any> => {
   const response = await fetch('/api/gemini', {
-    method: 'POST',
+    method: '??POST',
     headers: {
       'Content-Type': 'application/json',
     },
@@ -30,14 +32,27 @@ const fetchGeminiProxy = async (payload: {
   return data;
 };
 
+/**
+ * 重载 generateGeminiResponse：
+ * - 如果第一个参数是 string → 单轮模式（用于字典）
+ * - 如果第一个参数是数组 → 多轮上下文模式（用于聊天）
+ */
 export const generateGeminiResponse = async (
-  prompt: string,
+  input: string | ChatMessage[],
   systemInstruction?: string
 ): Promise<string> => {
-  const contents = [{ role: 'user', parts: [{ text: prompt }] }];
+  let messages: ChatMessage[];
+
+  if (typeof input === 'string') {
+    // 单轮模式（字典、简单问答）
+    messages = [{ role: 'user', content: input }];
+  } else {
+    // 多轮模式（聊天上下文）
+    messages = input;
+  }
 
   try {
-    const payload = { contents, systemInstruction }; // ← 不再用 config！
+    const payload = { messages, systemInstruction };
     const jsonResponse = await fetchGeminiProxy(payload);
     const text = jsonResponse.candidates?.[0]?.content?.parts?.[0]?.text;
 
@@ -49,7 +64,7 @@ export const generateGeminiResponse = async (
     return text.trim();
   } catch (error) {
     console.error("Gemini Proxy Call Error:", error);
-    return `Google API returned error: ${error instanceof Error ? error.message : String(error)}`;
+    return `AI service error: ${error instanceof Error ? error.message : String(error)}`;
   }
 };
 
