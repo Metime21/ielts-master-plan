@@ -17,21 +17,24 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
-    const { messages } = req.body; // Now expects full message array including system
+    const { messages, systemInstruction } = req.body;
 
+    // 验证 messages 格式
     if (!Array.isArray(messages) || messages.length === 0) {
       return res.status(400).json({ error: 'Invalid messages format' });
     }
 
-    // Validate message structure
     for (const msg of messages) {
-      if (!['system', 'user', 'assistant'].includes(msg.role)) {
-        return res.status(400).json({ error: 'Invalid message role' });
+      if (!['user', 'assistant'].includes(msg.role)) {
+        return res.status(400).json({ error: 'Message role must be user or assistant' });
       }
       if (typeof msg.content !== 'string') {
         return res.status(400).json({ error: 'Message content must be string' });
       }
     }
+
+    // 确保 systemInstruction 是字符串
+    const system = typeof systemInstruction === 'string' ? systemInstruction : '';
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 9000); // 9s timeout
@@ -46,6 +49,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         model: MODEL,
         input: {
           messages,
+          system, // ✅ 正确方式：system 放在 input.system
         },
         parameters: {
           result_format: 'message',
