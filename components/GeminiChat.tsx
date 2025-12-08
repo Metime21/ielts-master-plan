@@ -1,12 +1,16 @@
-// src/components/GeminiChat.tsx
-
 import React, { useState, useRef, useEffect } from 'react';
 import { Send, Sparkles, X } from 'lucide-react';
 import { ChatMessage } from '../types';
 import { generateGeminiResponse } from '../services/geminiService';
 
 const GeminiChat: React.FC = () => {
-  const [messages, setMessages] = useState<ChatMessage[]>([
+  // 注意：现在 messages 存的是 { role, content } 格式，用于发送给 API
+  const [chatHistory, setChatHistory] = useState<
+    { role: 'user' | 'assistant'; content: string }[]
+  >([]);
+
+  // 用于 UI 显示的消息（兼容原有 ChatMessage 类型）
+  const [displayMessages, setDisplayMessages] = useState<ChatMessage[]>([
     {
       id: 'init',
       role: 'model',
@@ -14,6 +18,7 @@ const GeminiChat: React.FC = () => {
       timestamp: Date.now()
     }
   ]);
+
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
@@ -27,9 +32,8 @@ const GeminiChat: React.FC = () => {
     if (isOpen) {
       scrollToBottom();
     }
-  }, [messages, isOpen]);
+  }, [displayMessages, isOpen]);
 
-  // 判断是否可能是雅思作文
   const isLikelyIELTSEssay = (text: string): boolean => {
     const trimmed = text.trim();
     if (trimmed.length < 120) return false;
@@ -49,19 +53,21 @@ const GeminiChat: React.FC = () => {
   const handleSend = async () => {
     if (!input.trim()) return;
 
-    const userMsg: ChatMessage = {
-      id: Date.now().toString(),
-      role: 'user',
-      text: input,
-      timestamp: Date.now()
-    };
-
-    setMessages(prev => [...prev, userMsg]);
+    const userText = input.trim();
     setInput('');
     setIsTyping(true);
 
-    try {
-      let systemInstruction = `
+    // 添加用户消息到显示列表
+    const userMsg: ChatMessage = {
+      id: Date.now().toString(),
+      role: 'user',
+      text: userText,
+      timestamp: Date.now()
+    };
+    setDisplayMessages(prev => [...prev, userMsg]);
+
+    // 构建 system instruction
+    let systemInstruction = `
 You are an official IELTS examiner certified by Cambridge Assessment English with over 15 years of experience. You were also a Band 9 IELTS candidate yourself. Respond as a professional human tutor — never mention you are an AI.
 
 Your responses MUST follow these rules:
@@ -83,8 +89,8 @@ Your responses MUST follow these rules:
 4. **Never use markdown**. Use plain text with clear line breaks.
 `;
 
-      if (isLikelyIELTSEssay(input)) {
-        systemInstruction += `
+    if (isLikelyIELTSEssay(userText)) {
+      systemInstruction += `
 
 5. **The user has likely submitted an IELTS Writing Task 2 essay. You must**:
    - Assess it using official IELTS Band Descriptors across four criteria:
@@ -97,17 +103,33 @@ Your responses MUST follow these rules:
    - Rewrite 2 key sentences to Band 9 level, explaining why they are stronger.
    - Keep feedback constructive and pedagogical.
 `;
-      }
+    }
 
-      const responseText = await generateGeminiResponse(userMsg.text, systemInstruction);
+    try {
+      // 构建完整消息列表：system + 历史 + 新用户消息
+      const fullMessages = [
+        { role: 'system' as const, content: systemInstruction },
+        ...chatHistory,
+        { role: 'user' as const, content: userText }
+      ];
 
+      const responseText = await generateGeminiResponse(fullMessages);
+
+      // 更新聊天历史（用于下次请求）
+      setChatHistory(prev => [
+        ...prev,
+        { role: 'user', content: userText },
+        { role: 'assistant', content: responseText }
+      ]);
+
+      // 更新显示消息
       const botMsg: ChatMessage = {
         id: (Date.now() + 1).toString(),
         role: 'model',
         text: responseText,
         timestamp: Date.now()
       };
-      setMessages(prev => [...prev, botMsg]);
+      setDisplayMessages(prev => [...prev, botMsg]);
     } catch (error) {
       console.error('GeminiChat Error:', error);
       const errorMsg: ChatMessage = {
@@ -116,7 +138,7 @@ Your responses MUST follow these rules:
         text: 'Oops! Something went wrong. Please check your network or try again later.',
         timestamp: Date.now()
       };
-      setMessages(prev => [...prev, errorMsg]);
+      setDisplayMessages(prev => [...prev, errorMsg]);
     } finally {
       setIsTyping(false);
     }
@@ -133,7 +155,7 @@ Your responses MUST follow these rules:
               </div>
               <div>
                 <h3 className="font-bold text-sm">IELTS AI Tutor</h3>
-                <p className="text-xs text-academic-100">Powered by Gemini</p>
+                <p className="text-xs text-academic-100">Powered by Qwen</p>
               </div>
             </div>
             <button
@@ -146,7 +168,7 @@ Your responses MUST follow these rules:
           </div>
 
           <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-slate-50">
-            {messages.map((msg) => (
+            {displayMessages.map((msg) => (
               <div
                 key={msg.id}
                 className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
