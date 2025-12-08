@@ -21,7 +21,7 @@ import {
   LinkIcon,
 } from 'lucide-react';
 
-// --- API Helper Function (Strict Format Enforcement) ---
+// --- API Helper Function (Fixed: Match Qwen API Format) ---
 const translateAndDefine = async (text: string): Promise<string> => {
   const prompt = `You are a professional IELTS English dictionary. For the word or phrase "${text}", provide ONLY the following information in EXACTLY this format with NO extra text, explanations, greetings, or markdown:
 
@@ -47,7 +47,10 @@ Rules:
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        messages: [
+          { role: 'user', content: prompt }
+        ],
+        systemInstruction: 'You are an expert IELTS vocabulary assistant.',
       }),
     });
 
