@@ -4,29 +4,41 @@ type ChatMessage = { role: 'user' | 'assistant'; content: string };
 
 /**
  * 调用本地代理接口 /api/gemini
- * 接收标准 messages 数组和可选 systemInstruction
+ * 支持 AbortSignal 用于取消请求（提升交互稳定性）
  */
-const fetchGeminiProxy = async (payload: {
-  messages: ChatMessage[];
-  systemInstruction?: string;
-}): Promise<any> => {
+const fetchGeminiProxy = async (
+  payload: {
+    messages: ChatMessage[];
+    systemInstruction?: string;
+  },
+  signal?: AbortSignal
+): Promise<any> => {
   const response = await fetch('/api/gemini', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify(payload),
+    signal, // ✅ 透传 AbortSignal
   });
 
   if (!response.ok) {
-    const errorData = await response.json().catch(() => ({}));
-    throw new Error(`Proxy failed: ${errorData.error || response.statusText}`);
+    // 尝试解析详细错误
+    let errorDetail = response.statusText;
+    try {
+      const errorData = await response.json();
+      errorDetail = errorData.error || errorData.details || response.statusText;
+    } catch {
+      // fallback to status text
+    }
+
+    throw new Error(`Proxy failed (${response.status}): ${errorDetail}`);
   }
 
   const data = await response.json();
 
-  if (!data.candidates || data.candidates.length === 0) {
-    throw new Error("No AI response received");
+  if (!data.candidates?.[0]?.content?.parts?.[0]?.text) {
+    throw new Error('AI returned empty or malformed response');
   }
 
   return data;
@@ -34,35 +46,31 @@ const fetchGeminiProxy = async (payload: {
 
 /**
  * 生成 AI 响应
- * 
+ *
  * 支持两种调用方式：
- * 1. generateGeminiResponse(prompt: string, systemInstruction?) → 用于字典等单轮场景
- * 2. generateGeminiResponse(messages: ChatMessage[], systemInstruction?) → 用于多轮聊天
- * 
- * ❌ 不接受 { contents: [...] } 等 Google Gemini 格式
+ * 1. generateGeminiResponse(prompt: string, systemInstruction?, signal?)
+ * 2. generateGeminiResponse(messages: ChatMessage[], systemInstruction?, signal?)
  */
 export const generateGeminiResponse = async (
   input: string | ChatMessage[],
-  systemInstruction?: string
+  systemInstruction?: string,
+  signal?: AbortSignal // ✅ 新增可选 signal
 ): Promise<string> => {
   let messages: ChatMessage[];
 
   if (typeof input === 'string') {
-    // 单轮模式：字典、简单问答
     messages = [{ role: 'user', content: input }];
   } else if (Array.isArray(input)) {
-    // 多轮模式：聊天上下文
     messages = input;
   } else {
-    // 防御性编程：拒绝非法输入（如 { contents: [...] }）
     console.error('[geminiService] Invalid input type:', input);
     throw new Error('Invalid input to generateGeminiResponse: must be string or ChatMessage[]');
   }
 
   try {
     const payload = { messages, systemInstruction };
-    const jsonResponse = await fetchGeminiProxy(payload);
-    const text = jsonResponse.candidates?.[0]?.content?.parts?.[0]?.text;
+    const jsonResponse = await fetchGeminiProxy(payload, signal);
+    const text = jsonResponse.candidates[0].content.parts[0].text;
 
     if (!text || typeof text !== 'string' || text.trim().length === 0) {
       console.warn('AI returned empty or invalid response:', jsonResponse);
@@ -71,14 +79,19 @@ export const generateGeminiResponse = async (
 
     return text.trim();
   } catch (error) {
-    console.error("Gemini Proxy Call Error:", error);
-    return `AI service error: ${error instanceof Error ? error.message : String(error)}`;
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      // 被主动取消（如用户发新消息）
+      throw error; // 让调用方决定是否忽略
+    }
+
+    console.error('Gemini Proxy Call Error:', error);
+    const msg = error instanceof Error ? error.message : String(error);
+    return `AI service error: ${msg}`;
   }
 };
 
 /**
- * 字典查询专用函数
- * 使用单条 prompt + 固定系统指令
+ * 字典查询专用函数（单轮，不支持取消）
  */
 export const translateAndDefine = async (word: string): Promise<string> => {
   const prompt = `
@@ -95,6 +108,7 @@ Keep it clean and structured.
 `;
 
   try {
+    // 字典查询通常很短，不需要取消
     const responseText = await generateGeminiResponse(prompt, "Be accurate, concise, and helpful.");
     
     if (!responseText || responseText.trim().length === 0) {
