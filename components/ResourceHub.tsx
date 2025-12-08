@@ -21,20 +21,9 @@ import {
   LinkIcon,
 } from 'lucide-react';
 
-// --- API Helper Function (Enhanced Prompt with IELTS chunks & bilingual对照) ---
+// --- API Helper Function (Strict Format Enforcement) ---
 const translateAndDefine = async (text: string): Promise<string> => {
-  const prompt = `You are a professional IELTS English dictionary. For the word or phrase "${text}", provide the following information:
-
-1. Part of speech (e.g., noun, verb, adjective)
-2. Pronunciation in IPA format (e.g., /'wɔːd/)
-3. A clear, concise English definition
-4. One natural example sentence in English
-5. Chinese translation of the example sentence
-6. Simple and accurate Chinese translation of the word
-7. Bilingual对照 (format: [Chinese] / [English])
-8. IELTS高频词组 (chunk): List 2-3 common academic or IELTS-relevant collocations (e.g., "database management", "access the database")
-
-Format your response EXACTLY as follows (do not add extra text, explanations, or markdown):
+  const prompt = `You are a professional IELTS English dictionary. For the word or phrase "${text}", provide ONLY the following information in EXACTLY this format with NO extra text, explanations, greetings, or markdown:
 
 **Part of Speech:** [pos]
 **Pronunciation:** [ipa]
@@ -45,7 +34,11 @@ Format your response EXACTLY as follows (do not add extra text, explanations, or
 **Bilingual对照:** [chinese] / [english]
 **IELTS高频词组 (chunk):** [chunk1], [chunk2], [chunk3]
 
-If the input is invalid or unclear, respond with: "Invalid input. Please enter a valid English word or phrase."`;
+Rules:
+- If input is invalid, respond ONLY: "Invalid input. Please enter a valid English word or phrase."
+- NEVER add any other text before, after, or between these lines.
+- Each field must appear on its own line starting exactly with "**Field Name:**".
+- Do not use bullet points, numbering, or extra spacing.`;
 
   try {
     const fetchResponse = await fetch('/api/gemini', {
@@ -358,7 +351,7 @@ const ResourceCard: React.FC<ResourceCardProps> = ({ title, items: initialItems,
   );
 };
 
-// --- ENHANCED DictionaryWidget with IELTS chunks & bilingual对照 ---
+// --- ENHANCED DictionaryWidget with Robust Parser ---
 
 const DictionaryWidget: React.FC = () => {
   const [query, setQuery] = useState('');
@@ -413,11 +406,12 @@ const DictionaryWidget: React.FC = () => {
     }
   };
 
-  // Enhanced parser for new fields
+  // Robust parser: handles missing fields gracefully
   const parseResult = (raw: string) => {
-    const lines = raw.split('\n').filter(Boolean);
     const parsed: Record<string, string> = {};
-    lines.forEach((line) => {
+    const lines = raw.split('\n');
+
+    for (const line of lines) {
       if (line.startsWith('**Part of Speech:**')) {
         parsed.pos = line.replace('**Part of Speech:**', '').trim();
       } else if (line.startsWith('**Pronunciation:**')) {
@@ -435,7 +429,7 @@ const DictionaryWidget: React.FC = () => {
       } else if (line.startsWith('**IELTS高频词组 (chunk):**')) {
         parsed.chunks = line.replace('**IELTS高频词组 (chunk):**', '').trim();
       }
-    });
+    }
     return parsed;
   };
 
@@ -845,17 +839,4 @@ const ResourceHub: React.FC = () => {
               { name: 'English with Lucy', url: 'https://www.youtube.com/feed/subscriptions/UCz4tgANd4yy8Oe0iXCdSWfA', note: 'British Pronunciation' },
               { name: 'IELTS Liz Tips', url: 'https://ieltsliz.com/ielts-speaking-free-lessons-essential-tips/', note: 'Part 1, 2, 3 Strategy' },
             ]}
-          />
-        </div>
-
-        {/* --- RIGHT: Tools Sidebar (4 Cols) --- */}
-        <div className="lg:col-span-4 space-y-5">
-          <StudyTimer />
-          <DictionaryWidget />
-        </div>
-      </div>
-    </div>
-  );
-};
-
-export default ResourceHub;
+         
