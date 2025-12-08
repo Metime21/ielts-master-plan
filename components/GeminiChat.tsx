@@ -1,27 +1,48 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Sparkles, X } from 'lucide-react';
+import { Send, Sparkles, X, Plus } from 'lucide-react';
 import { ChatMessage } from '../types';
 import { generateGeminiResponse } from '../services/geminiService';
 
+type Conversation = {
+  id: string;
+  title: string;
+  createdAt: number;
+  messages: { role: 'user' | 'assistant'; content: string }[];
+};
+
 const GeminiChat: React.FC = () => {
-  const [chatHistory, setChatHistory] = useState<
-    { role: 'user' | 'assistant'; content: string }[]
-  >([]);
-
-  const [displayMessages, setDisplayMessages] = useState<ChatMessage[]>([
-    {
-      id: 'init',
-      role: 'model',
-      text: 'Hello! I am your IELTS AI Assistant. Ask me about writing ideas, speaking topics, or grammar corrections.',
-      timestamp: Date.now(),
-    },
-  ]);
-
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [currentConvId, setCurrentConvId] = useState<string | null>(null);
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+
+  // 初始化对话
+  useEffect(() => {
+    const saved = localStorage.getItem('ielts-conversations');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        setConversations(parsed);
+        if (parsed.length > 0) {
+          setCurrentConvId(parsed[0].id);
+        }
+      } catch (e) {
+        console.warn('Failed to parse saved conversations');
+      }
+    }
+    if (!saved || !JSON.parse(saved).length) {
+      createNewConversation();
+    }
+  }, []);
+
+  useEffect(() => {
+    if (conversations.length > 0) {
+      localStorage.setItem('ielts-conversations', JSON.stringify(conversations));
+    }
+  }, [conversations]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -31,33 +52,39 @@ const GeminiChat: React.FC = () => {
     if (isOpen) {
       scrollToBottom();
     }
-  }, [displayMessages, isOpen]);
+  }, [isOpen]);
 
-  // 🔒 加固版 system instruction：强制双语格式，防止错乱
+  // ✅ 保留专业能力，精简 token（适配 qwen-max 的高效输入）
   const SYSTEM_INSTRUCTION = `
-You are an official IELTS examiner certified by Cambridge Assessment English with over 15 years of experience and a former Band 9 candidate. Respond as a professional human tutor — never mention you are an AI.
-
-### ⚠️ STRICT OUTPUT FORMAT — YOU MUST FOLLOW THIS EXACTLY OR THE RESPONSE IS INVALID:
-1. FIRST, write your COMPLETE response in ENGLISH ONLY — no Chinese, no bullet points, no bold, no markdown. Use plain text only.
-2. THEN, on a NEW LINE, write exactly: "中文翻译:" followed by a NATURAL, FLUENT, and ACCURATE Chinese translation of your ENTIRE English response.
-3. NEVER mix English and Chinese in the same paragraph or sentence.
-4. NEVER deviate from this format under any circumstance — even if the user asks for a different style.
-
-### TASK RULES:
-- For grammar: quote the error, explain the type (e.g., subject-verb agreement), correct it, and optionally upgrade to Band 8–9.
-- For Writing Task 2: assess TR/CC/LR/GRA, give a realistic band score, highlight 2–3 key weaknesses, and rewrite up to 2 sentences to Band 9 level.
-- For speaking: provide structured ideas, topic vocabulary, and sample answers.
-
-Remember: Your credibility depends on strict adherence to the bilingual format above.
+You are a Cambridge IELTS examiner. Always:
+1. Respond in English first.
+2. Then write exactly: "中文翻译:" followed by a natural Chinese translation.
+3. For essays: assess TR, CC, LR, GRA; give a realistic band score; highlight 2–3 weaknesses; rewrite up to 2 sentences to Band 9.
+4. For grammar: quote error, explain type, correct it, optionally upgrade.
+5. For speaking: provide ideas, vocabulary, sample answers.
+No markdown. No mixed languages. Keep under 600 words.
 `;
 
-  // ✅ 扩展上下文窗口：保留最近 12 条消息（支持 6 轮完整对话）
-  const trimHistory = (history: { role: string; content: string }[]) => {
-    return history.length > 12 ? history.slice(-12) : history;
+  // 智能裁剪：避免历史累积，但保留最新上下文
+  const smartTrimContext = (messages: { role: string; content: string }[]) => {
+    return messages.length > 4 ? messages.slice(-4) : messages;
+  };
+
+  const createNewConversation = () => {
+    const newConv: Conversation = {
+      id: Date.now().toString(),
+      title: 'New Chat',
+      createdAt: Date.now(),
+      messages: [],
+    };
+    const updated = [newConv, ...conversations].slice(0, 7);
+    setConversations(updated);
+    setCurrentConvId(newConv.id);
+    setInput('');
   };
 
   const handleSend = async () => {
-    if (!input.trim() || isTyping) return;
+    if (!input.trim() || isTyping || !currentConvId) return;
 
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
@@ -69,64 +96,67 @@ Remember: Your credibility depends on strict adherence to the bilingual format a
     setInput('');
     setIsTyping(true);
 
-    const userMsg: ChatMessage = {
-      id: `msg-${Date.now()}`,
-      role: 'user',
-      text: userText,
-      timestamp: Date.now(),
-    };
-    setDisplayMessages((prev) => [...prev, userMsg]);
+    const currentConv = conversations.find(c => c.id === currentConvId);
+    if (!currentConv) return;
 
     try {
-      const trimmedHistory = trimHistory([
-        ...chatHistory,
+      const contextForAI = smartTrimContext([
+        ...currentConv.messages,
         { role: 'user', content: userText },
       ]);
 
       const responseText = await generateGeminiResponse(
-        trimmedHistory,
+        contextForAI,
         SYSTEM_INSTRUCTION,
         controller.signal
       );
 
       if (controller.signal.aborted) return;
 
-      setChatHistory((prev) =>
-        trimHistory([
-          ...prev,
-          { role: 'user', content: userText },
-          { role: 'assistant', content: responseText },
-        ])
-      );
+      const newTitle =
+        currentConv.title === 'New Chat'
+          ? `${userText.substring(0, 20)}${userText.length > 20 ? '...' : ''}`
+          : currentConv.title;
 
-      const botMsg: ChatMessage = {
-        id: `msg-${Date.now() + 1}`,
-        role: 'model',
-        text: responseText,
-        timestamp: Date.now(),
+      const updatedMessages = [
+        ...currentConv.messages,
+        { role: 'user', content: userText },
+        { role: 'assistant', content: responseText },
+      ];
+
+      const updatedConv: Conversation = {
+        ...currentConv,
+        title: newTitle,
+        messages: updatedMessages,
       };
-      setDisplayMessages((prev) => [...prev, botMsg]);
+
+      setConversations(prev =>
+        prev.map(c => (c.id === currentConvId ? updatedConv : c))
+      );
     } catch (error: any) {
-      if (error.name === 'AbortError') {
-        return;
-      }
+      if (error.name === 'AbortError') return;
 
       console.error('GeminiChat Error:', error);
 
       let errorMsgText = 'Oops! Something went wrong. Please try again.';
       if (error.message?.includes('timed out')) {
-        errorMsgText = 'The AI is taking longer than expected. Please:\n• Keep requests simple\n• Split into smaller steps\n• Avoid asking for full rewrite + feedback at once';
+        errorMsgText =
+          'The AI is taking longer than expected. This is normal for full essay analysis with qwen-max. Please wait up to 45 seconds, or check your internet connection.';
       } else if (error.message?.includes('network')) {
         errorMsgText = 'Network error. Please check your connection and try again.';
       }
 
-      const errorMsg: ChatMessage = {
-        id: `msg-${Date.now() + 2}`,
-        role: 'model',
-        text: errorMsgText,
-        timestamp: Date.now(),
+      const updatedConv: Conversation = {
+        ...currentConv,
+        messages: [
+          ...currentConv.messages,
+          { role: 'user', content: userText },
+          { role: 'assistant', content: errorMsgText },
+        ],
       };
-      setDisplayMessages((prev) => [...prev, errorMsg]);
+      setConversations(prev =>
+        prev.map(c => (c.id === currentConvId ? updatedConv : c))
+      );
     } finally {
       setIsTyping(false);
     }
@@ -140,87 +170,128 @@ Remember: Your credibility depends on strict adherence to the bilingual format a
     };
   }, []);
 
+  const currentConv = conversations.find(c => c.id === currentConvId);
+
   return (
-    <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end">
-      {isOpen ? (
-        <div className="w-80 md:w-96 bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col h-[500px] animate-fade-in-up">
-          <div className="bg-academic-800 p-4 flex items-center justify-between text-white">
-            <div className="flex items-center gap-2">
-              <div className="bg-white/20 p-1.5 rounded-lg">
-                <Sparkles size={18} />
-              </div>
-              <div>
-                <h3 className="font-bold text-sm">IELTS AI Tutor</h3>
-                <p className="text-xs text-academic-100">Powered by Qwen</p>
-              </div>
-            </div>
-            <button
-              onClick={() => setIsOpen(false)}
-              className="text-white/70 hover:text-white hover:bg-white/10 p-1.5 rounded-lg transition-colors"
-              title="Collapse Chat"
-            >
-              <X size={18} />
-            </button>
-          </div>
-
-          <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-slate-50">
-            {displayMessages.map((msg) => (
-              <div
-                key={msg.id}
-                className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
-              >
-                <div
-                  className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-sm shadow-sm ${
-                    msg.role === 'user'
-                      ? 'bg-academic-500 text-white rounded-br-none'
-                      : 'bg-white text-slate-700 border border-slate-100 rounded-bl-none'
-                  }`}
-                >
-                  {msg.text}
-                </div>
-              </div>
-            ))}
-            {isTyping && (
-              <div className="flex justify-start">
-                <div className="bg-white px-4 py-2 rounded-2xl rounded-bl-none text-xs text-slate-400 border border-slate-100 flex items-center gap-1">
-                  <span className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce" />
-                  <span className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce delay-75" />
-                  <span className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce delay-150" />
-                </div>
-              </div>
-            )}
-            <div ref={messagesEndRef} />
-          </div>
-
-          <div className="p-3 bg-white border-t border-slate-100 flex gap-2">
-            <input
-              type="text"
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-              placeholder="Ask me anything..."
-              className="flex-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-academic-500"
-              disabled={isTyping}
-            />
-            <button
-              onClick={handleSend}
-              disabled={!input.trim() || isTyping}
-              className="bg-accent-500 hover:bg-accent-600 text-white p-2 rounded-xl transition-colors disabled:opacity-50"
-            >
-              <Send size={18} />
-            </button>
-          </div>
-        </div>
-      ) : (
+    <div className="fixed inset-0 z-50 flex justify-end">
+      {!isOpen ? (
         <button
           onClick={() => setIsOpen(true)}
-          className="bg-academic-800 text-white px-5 py-3 rounded-full shadow-xl hover:shadow-2xl hover:bg-academic-900 transition-all flex items-center gap-3 group"
+          className="fixed bottom-6 right-6 bg-academic-800 text-white px-5 py-3 rounded-full shadow-xl hover:shadow-2xl hover:bg-academic-900 transition-all flex items-center gap-3 group"
         >
           <div className="bg-accent-500 p-1.5 rounded-full text-white group-hover:rotate-12 transition-transform shadow-inner">
             <Sparkles size={20} />
           </div>
           <span className="font-bold text-base">IELTS AI Tutor</span>
         </button>
+      ) : (
+        <div className="flex w-full max-w-4xl h-[90vh] mt-6 mr-6">
+          {/* 左侧：最近对话 */}
+          <div className="w-64 bg-gray-50 border-r border-gray-200 rounded-l-2xl overflow-hidden flex flex-col">
+            <button
+              onClick={createNewConversation}
+              className="p-3 text-left font-bold text-academic-800 hover:bg-academic-50 flex items-center gap-2 border-b border-gray-200"
+            >
+              <Plus size={16} />
+              New Chat
+            </button>
+            <div className="flex-1 overflow-y-auto py-2 space-y-1">
+              {conversations.map(conv => (
+                <button
+                  key={conv.id}
+                  onClick={() => setCurrentConvId(conv.id)}
+                  className={`w-full text-left px-3 py-2 text-sm truncate ${
+                    conv.id === currentConvId
+                      ? 'bg-academic-100 text-academic-800 font-medium'
+                      : 'hover:bg-gray-100 text-gray-700'
+                  }`}
+                >
+                  {conv.title}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* 右侧：主聊天窗口 */}
+          <div className="flex-1 bg-white rounded-r-2xl shadow-2xl flex flex-col">
+            <div className="bg-academic-800 p-4 flex items-center justify-between text-white">
+              <div className="flex items-center gap-2">
+                <div className="bg-white/20 p-1.5 rounded-lg">
+                  <Sparkles size={18} />
+                </div>
+                <div>
+                  <h3 className="font-bold text-sm">IELTS AI Tutor</h3>
+                  <p className="text-xs text-academic-100">Powered by qwen-max</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsOpen(false)}
+                className="text-white/70 hover:text-white hover:bg-white/10 p-1.5 rounded-lg transition-colors"
+                title="Collapse Chat"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-slate-50">
+              {currentConv &&
+                (currentConv.messages.length === 0 ? (
+                  <div className="flex justify-start">
+                    <div className="bg-white px-4 py-2.5 rounded-2xl rounded-bl-none text-sm text-slate-700 border border-slate-100">
+                      Hello! I am your IELTS AI Assistant. You can send a full essay for professional feedback.
+                    </div>
+                  </div>
+                ) : (
+                  currentConv.messages.map((msg, idx) => (
+                    <div
+                      key={idx}
+                      className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+                    >
+                      <div
+                        className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-sm shadow-sm ${
+                          msg.role === 'user'
+                            ? 'bg-academic-500 text-white rounded-br-none'
+                            : 'bg-white text-slate-700 border border-slate-100 rounded-bl-none'
+                        }`}
+                      >
+                        {msg.content}
+                      </div>
+                    </div>
+                  ))
+                ))}
+
+              {isTyping && (
+                <div className="flex justify-start">
+                  <div className="bg-white px-4 py-2 rounded-2xl rounded-bl-none text-xs text-slate-400 border border-slate-100 flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce" />
+                    <span className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce delay-75" />
+                    <span className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce delay-150" />
+                  </div>
+                </div>
+              )}
+              <div ref={messagesEndRef} />
+            </div>
+
+            <div className="p-3 bg-white border-t border-slate-100 flex gap-2">
+              <input
+                type="text"
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleSend()}
+                placeholder="Send your full IELTS essay or question..."
+                className="flex-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-academic-500"
+                disabled={isTyping}
+              />
+              <button
+                onClick={handleSend}
+                disabled={!input.trim() || isTyping}
+                className="bg-accent-500 hover:bg-accent-600 text-white p-2 rounded-xl transition-colors disabled:opacity-50"
+              >
+                <Send size={18} />
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
