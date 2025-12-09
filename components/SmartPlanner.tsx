@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { ChevronLeft, ChevronRight, Edit3, Save, CheckCircle2, Calendar as CalendarIcon, Target } from 'lucide-react';
 import { Task, DailyReview, Mood, DayData } from '../types';
-import { loadPlannerData, savePlannerData } from '../utils/plannerStorage'; // ← 新增导入
 
 // --- Helpers ---
 
@@ -25,36 +24,65 @@ const INITIAL_REVIEW: DailyReview = {
   mood: null
 };
 
-// Morandi Palette
 const MORANDI_BORDERS = [
-  'border-[#E6B89C]', // Muted Orange
-  'border-[#A4C3B2]', // Muted Green
-  'border-[#9BB7D4]', // Muted Blue
-  'border-[#EAD18F]', // Muted Yellow
+  'border-[#E6B89C]',
+  'border-[#A4C3B2]',
+  'border-[#9BB7D4]',
+  'border-[#EAD18F]',
 ];
 
-// --- Components ---
+// --- Cloud Sync Utils ---
+const SYNC_URL = '/api/sync';
+
+async function loadFromCloud(): Promise<Record<string, DayData>> {
+  try {
+    const res = await fetch(SYNC_URL);
+    if (!res.ok) throw new Error('Failed to load');
+    const data = await res.json();
+    return typeof data === 'object' && data !== null ? data : {};
+  } catch (err) {
+    console.warn('Failed to load from cloud, using empty history');
+    return {};
+  }
+}
+
+async function saveToCloud(history: Record<string, DayData>): Promise<void> {
+  try {
+    await fetch(SYNC_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(history),
+    });
+  } catch (err) {
+    console.error('Failed to save to cloud:', err);
+  }
+}
+
+// --- Main Component ---
 
 const SmartPlanner: React.FC = () => {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [history, setHistory] = useState<Record<string, DayData>>({});
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
+  const [isLoaded, setIsLoaded] = useState(false);
 
-  // 加载历史数据（仅一次）
+  // Load from cloud on first render
   useEffect(() => {
-    const saved = loadPlannerData();
-    if (saved && typeof saved === 'object') {
-      setHistory(saved);
-    }
+    loadFromCloud().then((data) => {
+      setHistory(data);
+      setIsLoaded(true);
+    });
   }, []);
 
-  // 保存历史数据（每次 history 变化时）
+  // Auto-save to cloud whenever history changes (and after initial load)
   useEffect(() => {
-    savePlannerData(history);
-  }, [history]);
+    if (isLoaded) {
+      const timeout = setTimeout(() => saveToCloud(history), 500); // debounce
+      return () => clearTimeout(timeout);
+    }
+  }, [history, isLoaded]);
 
-  // Derived state for the currently selected day
   const dateKey = formatDateKey(selectedDate);
   
   const currentData: DayData = history[dateKey] || {
@@ -159,100 +187,88 @@ const SmartPlanner: React.FC = () => {
 
   return (
     <div className="max-w-7xl mx-auto animate-fade-in pb-12">
-      
-      {/* Grid Layout: Left 8 cols (Review) & Right 4 cols (Sidebar) -> 8:4 (66% / 33%) Ratio */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-        
-        {/* --- LEFT COLUMN (8/12): Daily Review --- */}
+        {/* LEFT COLUMN */}
         <div className="lg:col-span-8 space-y-6">
-          
-           {/* Review Header */}
-           <div className="flex items-end justify-between px-2">
-              <div>
-                <h2 className="text-3xl font-extrabold text-academic-900 tracking-tight">Daily Review</h2>
-                <p className="text-slate-500 font-medium mt-1 flex items-center gap-1 text-sm">
-                  <Edit3 size={14} /> Reflect, Learn, Improve.
-                </p>
+          <div className="flex items-end justify-between px-2">
+            <div>
+              <h2 className="text-3xl font-extrabold text-academic-900 tracking-tight">Daily Review</h2>
+              <p className="text-slate-500 font-medium mt-1 flex items-center gap-1 text-sm">
+                <Edit3 size={14} /> Reflect, Learn, Improve.
+              </p>
+            </div>
+            <div className="text-right">
+               <div className="text-4xl font-black text-slate-200 tracking-tighter leading-none">{selectedDate.getDate()}</div>
+               <div className="text-xs font-bold text-slate-400 uppercase tracking-widest">{monthNames[selectedDate.getMonth()]}</div>
+            </div>
+          </div>
+
+          <div className="glass-card rounded-3xl p-6 border border-white/60 shadow-xl bg-white/90 backdrop-blur-xl">
+            <div className="mb-6 p-4 bg-slate-50/50 rounded-2xl border border-slate-100/50">
+              <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 block">Mood Check</label>
+              <div className="flex gap-4 justify-between sm:justify-start">
+                {Object.values(Mood).map((m) => (
+                  <button
+                    key={m}
+                    onClick={() => handleReviewChange('mood', m)}
+                    className={`text-4xl w-16 h-16 flex items-center justify-center rounded-full transition-all transform hover:scale-110 
+                      ${currentData.review.mood === m ? 'bg-white ring-2 ring-accent-400 scale-110 shadow-lg' : 'hover:bg-white/80 grayscale opacity-60 hover:grayscale-0 hover:opacity-100'}
+                    `}
+                  >
+                    {m}
+                  </button>
+                ))}
               </div>
-              <div className="text-right">
-                 <div className="text-4xl font-black text-slate-200 tracking-tighter leading-none">{selectedDate.getDate()}</div>
-                 <div className="text-xs font-bold text-slate-400 uppercase tracking-widest">{monthNames[selectedDate.getMonth()]}</div>
+            </div>
+
+            <div className="space-y-6">
+              <div className="group bg-white rounded-3xl p-5 border border-slate-100 focus-within:ring-2 focus-within:ring-academic-100 focus-within:border-academic-200 transition-all shadow-sm hover:shadow-md">
+                <label className="text-xs font-bold text-academic-600 uppercase tracking-wider mb-2 flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-indigo-400"></span>
+                  Reading & Listening Analysis
+                </label>
+                <textarea 
+                  className="w-full bg-transparent border-none focus:ring-0 text-slate-700 text-base leading-relaxed h-60 resize-none placeholder:text-slate-300"
+                  placeholder="Detailed breakdown of mistakes, synonyms found, or tricky accents encountered..."
+                  value={currentData.review.readingListening}
+                  onChange={(e) => handleReviewChange('readingListening', e.target.value)}
+                />
               </div>
-           </div>
 
-           <div className="glass-card rounded-3xl p-6 border border-white/60 shadow-xl bg-white/90 backdrop-blur-xl">
-             
-             {/* Mood Tracker (Enlarged 1.5x) */}
-             <div className="mb-6 p-4 bg-slate-50/50 rounded-2xl border border-slate-100/50">
-               <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 block">Mood Check</label>
-               <div className="flex gap-4 justify-between sm:justify-start">
-                 {Object.values(Mood).map((m) => (
-                    <button
-                      key={m}
-                      onClick={() => handleReviewChange('mood', m)}
-                      className={`text-4xl w-16 h-16 flex items-center justify-center rounded-full transition-all transform hover:scale-110 
-                        ${currentData.review.mood === m ? 'bg-white ring-2 ring-accent-400 scale-110 shadow-lg' : 'hover:bg-white/80 grayscale opacity-60 hover:grayscale-0 hover:opacity-100'}
-                      `}
-                    >
-                      {m}
-                    </button>
-                  ))}
-               </div>
-             </div>
-
-             {/* Text Areas (Reduced Height h-60 for alignment) */}
-             <div className="space-y-6">
-                <div className="group bg-white rounded-3xl p-5 border border-slate-100 focus-within:ring-2 focus-within:ring-academic-100 focus-within:border-academic-200 transition-all shadow-sm hover:shadow-md">
-                   <label className="text-xs font-bold text-academic-600 uppercase tracking-wider mb-2 flex items-center gap-2">
-                      <span className="w-2 h-2 rounded-full bg-indigo-400"></span>
-                      Reading & Listening Analysis
-                   </label>
-                   <textarea 
-                     className="w-full bg-transparent border-none focus:ring-0 text-slate-700 text-base leading-relaxed h-60 resize-none placeholder:text-slate-300"
-                     placeholder="Detailed breakdown of mistakes, synonyms found, or tricky accents encountered..."
-                     value={currentData.review.readingListening}
-                     onChange={(e) => handleReviewChange('readingListening', e.target.value)}
-                   />
-                </div>
-
-                <div className="group bg-white rounded-3xl p-5 border border-slate-100 focus-within:ring-2 focus-within:ring-academic-100 focus-within:border-academic-200 transition-all shadow-sm hover:shadow-md">
-                   <label className="text-xs font-bold text-academic-600 uppercase tracking-wider mb-2 flex items-center gap-2">
-                      <span className="w-2 h-2 rounded-full bg-pink-400"></span>
-                      Speaking & Writing Notes
-                   </label>
-                   <textarea 
-                     className="w-full bg-transparent border-none focus:ring-0 text-slate-700 text-base leading-relaxed h-60 resize-none placeholder:text-slate-300"
-                     placeholder="New idioms, grammar corrections, or ideas for Task 2 topics..."
-                     value={currentData.review.speakingWriting}
-                     onChange={(e) => handleReviewChange('speakingWriting', e.target.value)}
-                   />
-                </div>
-             </div>
-           </div>
+              <div className="group bg-white rounded-3xl p-5 border border-slate-100 focus-within:ring-2 focus-within:ring-academic-100 focus-within:border-academic-200 transition-all shadow-sm hover:shadow-md">
+                <label className="text-xs font-bold text-academic-600 uppercase tracking-wider mb-2 flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-pink-400"></span>
+                  Speaking & Writing Notes
+                </label>
+                <textarea 
+                  className="w-full bg-transparent border-none focus:ring-0 text-slate-700 text-base leading-relaxed h-60 resize-none placeholder:text-slate-300"
+                  placeholder="New idioms, grammar corrections, or ideas for Task 2 topics..."
+                  value={currentData.review.speakingWriting}
+                  onChange={(e) => handleReviewChange('speakingWriting', e.target.value)}
+                />
+              </div>
+            </div>
+          </div>
         </div>
 
-        {/* --- RIGHT COLUMN (4/12): Sidebar (Calendar & Schedule) --- */}
+        {/* RIGHT COLUMN */}
         <div className="lg:col-span-4 space-y-4">
-          
-          {/* 1. Calendar Widget (Ultra Compact) */}
           <div className="bg-white rounded-3xl shadow-lg border border-slate-100 overflow-hidden relative group hover:shadow-xl transition-shadow">
-            {/* Gradient Top Border */}
             <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-academic-500 via-indigo-400 to-accent-400"></div>
-            
             <div className="p-4 pt-5">
               <div className="flex justify-between items-center mb-3">
-                 <h3 className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
-                   <CalendarIcon size={12} className="text-accent-500"/>
-                   {monthNames[month]} <span className="text-slate-400 font-normal">{year}</span>
-                 </h3>
-                 <div className="flex gap-1">
-                   <button onClick={() => changeMonth(-1)} className="p-0.5 hover:bg-slate-50 rounded-full text-slate-400 hover:text-slate-600 transition-colors">
-                     <ChevronLeft size={14} />
-                   </button>
-                   <button onClick={() => changeMonth(1)} className="p-0.5 hover:bg-slate-50 rounded-full text-slate-400 hover:text-slate-600 transition-colors">
-                     <ChevronRight size={14} />
-                   </button>
-                 </div>
+                <h3 className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
+                  <CalendarIcon size={12} className="text-accent-500"/>
+                  {monthNames[month]} <span className="text-slate-400 font-normal">{year}</span>
+                </h3>
+                <div className="flex gap-1">
+                  <button onClick={() => changeMonth(-1)} className="p-0.5 hover:bg-slate-50 rounded-full text-slate-400 hover:text-slate-600 transition-colors">
+                    <ChevronLeft size={14} />
+                  </button>
+                  <button onClick={() => changeMonth(1)} className="p-0.5 hover:bg-slate-50 rounded-full text-slate-400 hover:text-slate-600 transition-colors">
+                    <ChevronRight size={14} />
+                  </button>
+                </div>
               </div>
               
               <div className="grid grid-cols-7 gap-y-1 justify-items-center mb-1 border-b border-slate-50 pb-1">
@@ -267,90 +283,87 @@ const SmartPlanner: React.FC = () => {
             </div>
           </div>
 
-          {/* 2. Schedule Widget (Widened and Taller Items) */}
           <div className="rounded-3xl pt-2">
-             <div className="flex items-center justify-between px-2 mb-3">
-                <h3 className="text-sm font-bold text-academic-900 flex items-center gap-2">
-                  <Target size={16} className="text-accent-500" /> Schedule
-                </h3>
-                <span className="text-[9px] font-bold bg-white px-1.5 py-0.5 rounded-full text-slate-500 border border-slate-200 shadow-sm">
-                   {currentData.tasks.filter(t => t.progress === 100).length}/4
-                </span>
-             </div>
-             
-             <div className="space-y-5">
-               {currentData.tasks.map((task, index) => (
-                 <div 
-                    key={task.id} 
-                    className={`bg-white rounded-2xl p-6 shadow-sm border-l-4 hover:shadow-md transition-all group ${MORANDI_BORDERS[index % MORANDI_BORDERS.length].replace('border-', 'border-l-')}`}
-                 >
-                    <div className="flex justify-between items-start mb-3 gap-2">
-                       {editingTaskId === task.id ? (
-                         <div className="w-full space-y-2">
-                            <input 
-                              className="w-full text-[10px] font-bold text-slate-500 bg-slate-50 rounded px-1 py-0.5"
-                              value={task.timeRange}
-                              onChange={(e) => handleTaskChange(task.id, 'timeRange', e.target.value)}
-                              placeholder="Time"
-                            />
-                            <input 
-                              className="w-full text-xs font-bold text-academic-900 bg-slate-50 rounded px-1 py-0.5"
-                              value={task.subject}
-                              onChange={(e) => handleTaskChange(task.id, 'subject', e.target.value)}
-                              placeholder="Subject"
-                            />
-                            <textarea 
-                              className="w-full text-lg font-medium text-slate-700 bg-slate-50 rounded px-1 py-1 resize-none"
-                              rows={2}
-                              value={task.content}
-                              onChange={(e) => handleTaskChange(task.id, 'content', e.target.value)}
-                              placeholder="Content details..."
-                            />
-                         </div>
-                       ) : (
-                         <div className="flex-1 min-w-0">
-                           <div className="flex justify-between items-center pr-1 mb-1">
-                              <div className="text-[9px] font-bold text-slate-400 uppercase tracking-wide bg-slate-50 inline-block px-1 py-0.5 rounded">{task.timeRange}</div>
-                              {task.progress === 100 && <CheckCircle2 size={12} className="text-green-500 flex-shrink-0" />}
-                           </div>
-                           <div className="text-xs font-bold text-academic-800 truncate mb-1">{task.subject}</div>
-                           <div className="text-lg font-medium text-slate-700 leading-snug break-words">{task.content}</div>
-                         </div>
-                       )}
-                       
-                       <button 
-                         onClick={() => setEditingTaskId(editingTaskId === task.id ? null : task.id)}
-                         className="text-slate-300 hover:text-academic-500 transition-colors p-0.5 flex-shrink-0 mt-1"
-                       >
-                         {editingTaskId === task.id ? <Save size={14} /> : <Edit3 size={14} />}
-                       </button>
-                    </div>
-
-                    <div 
-                      className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden cursor-pointer relative group/progress mt-4"
-                      onClick={(e) => handleProgressClick(e, task.id)}
-                      title="Click to set progress (0%, 25%, 50%, 75%, 100%)"
-                    >
-                      <div className="absolute inset-0 flex opacity-0 group-hover/progress:opacity-20 transition-opacity z-10">
-                         <div className="w-[12.5%] h-full"></div>
-                         <div className="w-[25%] h-full border-r border-black"></div>
-                         <div className="w-[25%] h-full border-r border-black"></div>
-                         <div className="w-[25%] h-full border-r border-black"></div>
-                         <div className="w-[12.5%] h-full"></div>
+            <div className="flex items-center justify-between px-2 mb-3">
+              <h3 className="text-sm font-bold text-academic-900 flex items-center gap-2">
+                <Target size={16} className="text-accent-500" /> Schedule
+              </h3>
+              <span className="text-[9px] font-bold bg-white px-1.5 py-0.5 rounded-full text-slate-500 border border-slate-200 shadow-sm">
+                {currentData.tasks.filter(t => t.progress === 100).length}/4
+              </span>
+            </div>
+            
+            <div className="space-y-5">
+              {currentData.tasks.map((task, index) => (
+                <div 
+                  key={task.id} 
+                  className={`bg-white rounded-2xl p-6 shadow-sm border-l-4 hover:shadow-md transition-all group ${MORANDI_BORDERS[index % MORANDI_BORDERS.length].replace('border-', 'border-l-')}`}
+                >
+                  <div className="flex justify-between items-start mb-3 gap-2">
+                    {editingTaskId === task.id ? (
+                      <div className="w-full space-y-2">
+                        <input 
+                          className="w-full text-[10px] font-bold text-slate-500 bg-slate-50 rounded px-1 py-0.5"
+                          value={task.timeRange}
+                          onChange={(e) => handleTaskChange(task.id, 'timeRange', e.target.value)}
+                          placeholder="Time"
+                        />
+                        <input 
+                          className="w-full text-xs font-bold text-academic-900 bg-slate-50 rounded px-1 py-0.5"
+                          value={task.subject}
+                          onChange={(e) => handleTaskChange(task.id, 'subject', e.target.value)}
+                          placeholder="Subject"
+                        />
+                        <textarea 
+                          className="w-full text-lg font-medium text-slate-700 bg-slate-50 rounded px-1 py-1 resize-none"
+                          rows={2}
+                          value={task.content}
+                          onChange={(e) => handleTaskChange(task.id, 'content', e.target.value)}
+                          placeholder="Content details..."
+                        />
                       </div>
-                      
-                      <div 
-                         className={`h-full transition-all duration-300 ease-out ${getProgressColor(task.progress)}`}
-                         style={{ width: `${task.progress}%` }}
-                      />
+                    ) : (
+                      <div className="flex-1 min-w-0">
+                        <div className="flex justify-between items-center pr-1 mb-1">
+                          <div className="text-[9px] font-bold text-slate-400 uppercase tracking-wide bg-slate-50 inline-block px-1 py-0.5 rounded">{task.timeRange}</div>
+                          {task.progress === 100 && <CheckCircle2 size={12} className="text-green-500 flex-shrink-0" />}
+                        </div>
+                        <div className="text-xs font-bold text-academic-800 truncate mb-1">{task.subject}</div>
+                        <div className="text-lg font-medium text-slate-700 leading-snug break-words">{task.content}</div>
+                      </div>
+                    )}
+                    
+                    <button 
+                      onClick={() => setEditingTaskId(editingTaskId === task.id ? null : task.id)}
+                      className="text-slate-300 hover:text-academic-500 transition-colors p-0.5 flex-shrink-0 mt-1"
+                    >
+                      {editingTaskId === task.id ? <Save size={14} /> : <Edit3 size={14} />}
+                    </button>
+                  </div>
+
+                  <div 
+                    className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden cursor-pointer relative group/progress mt-4"
+                    onClick={(e) => handleProgressClick(e, task.id)}
+                    title="Click to set progress (0%, 25%, 50%, 75%, 100%)"
+                  >
+                    <div className="absolute inset-0 flex opacity-0 group-hover/progress:opacity-20 transition-opacity z-10">
+                      <div className="w-[12.5%] h-full"></div>
+                      <div className="w-[25%] h-full border-r border-black"></div>
+                      <div className="w-[25%] h-full border-r border-black"></div>
+                      <div className="w-[25%] h-full border-r border-black"></div>
+                      <div className="w-[12.5%] h-full"></div>
                     </div>
-                 </div>
-               ))}
-             </div>
+                    
+                    <div 
+                      className={`h-full transition-all duration-300 ease-out ${getProgressColor(task.progress)}`}
+                      style={{ width: `${task.progress}%` }}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
-
         </div>
-
       </div>
     </div>
   );
