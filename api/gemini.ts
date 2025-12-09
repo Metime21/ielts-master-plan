@@ -1,5 +1,5 @@
-// api/gemini.ts
-import { VercelRequest, VercelResponse } from '@vercel/node';
+// pages/api/gemini.ts
+import type { NextApiRequest, NextApiResponse } from 'next';
 
 const DASHSCOPE_API_KEY = process.env.DASHSCOPE_API_KEY;
 const MODEL = 'qwen-max';
@@ -9,7 +9,7 @@ if (!DASHSCOPE_API_KEY) {
   throw new Error('DASHSCOPE_API_KEY not configured');
 }
 
-export default async function handler(req: VercelRequest, res: VercelResponse) {
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   console.log('[1] Function started | Method:', req.method);
 
   if (req.method !== 'POST') {
