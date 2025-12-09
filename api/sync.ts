@@ -21,7 +21,7 @@ export default async function handler(req: Request): Promise<Response> {
   try {
     if (req.method === 'POST') {
       const body = await req.json();
-      await kv.set(ITEM_KEY, body);
+      await kv.set(ITEM_KEY, body, { expire: 60 * 60 * 24 * 30 }); // 可选：30天过期
       return new Response(JSON.stringify({ ok: true }), {
         status: 200,
         headers: { ...headers, 'Content-Type': 'application/json' },
