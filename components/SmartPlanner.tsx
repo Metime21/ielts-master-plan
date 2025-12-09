@@ -1,7 +1,7 @@
+// components/SmartPlanner.tsx
 import React, { useState, useEffect } from 'react';
 import { ChevronLeft, ChevronRight, Edit3, Save, CheckCircle2, Calendar as CalendarIcon, Target } from 'lucide-react';
 import { Task, DailyReview, Mood, DayData } from '../types';
-import { get } from '@vercel/edge-config'; // ✅ 只导入 get
 
 // --- Helpers ---
 
@@ -32,29 +32,24 @@ const MORANDI_BORDERS = [
   'border-[#EAD18F]',
 ];
 
-// --- Edge Config Sync ---
-const EDGE_CONFIG_ID = process.env.NEXT_PUBLIC_EDGE_CONFIG_ID;
+// --- API Sync Functions ---
 
-if (!EDGE_CONFIG_ID) {
-  throw new Error('Missing NEXT_PUBLIC_EDGE_CONFIG_ID environment variable. Please add it in Vercel or .env.local');
-}
-
-const ITEM_KEY = 'smartStorageData';
-
-async function loadFromEdgeConfig(): Promise<Record<string, DayData>> {
+async function loadFromAPI(): Promise<Record<string, DayData>> {
   try {
-    const data = await get(EDGE_CONFIG_ID, ITEM_KEY);
-    if (typeof data === 'object' && data !== null) {
-      return data;
+    const res = await fetch('/api/sync');
+    if (res.ok) {
+      const data = await res.json();
+      if (typeof data === 'object' && data !== null) {
+        return data;
+      }
     }
     return {};
   } catch (err) {
-    console.warn('Failed to load from Edge Config, using empty history:', err);
+    console.warn('Failed to load from /api/sync, using empty history:', err);
     return {};
   }
 }
 
-// ✅ 新增：通过 API 保存数据
 async function saveToAPI(history: Record<string, DayData>): Promise<void> {
   try {
     const res = await fetch('/api/sync', {
@@ -79,15 +74,15 @@ const SmartPlanner: React.FC = () => {
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [isLoaded, setIsLoaded] = useState(false);
 
-  // Load from Edge Config on first render
+  // Load data from /api/sync on mount
   useEffect(() => {
-    loadFromEdgeConfig().then((data) => {
+    loadFromAPI().then((data) => {
       setHistory(data);
       setIsLoaded(true);
     });
   }, []);
 
-  // Auto-save to API whenever history changes (with debounce)
+  // Auto-save with debounce when history changes
   useEffect(() => {
     if (isLoaded) {
       const timeout = setTimeout(() => saveToAPI(history), 500);
