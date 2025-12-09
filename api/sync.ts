@@ -1,19 +1,11 @@
 // api/sync.ts
-import { get, set } from '@vercel/edge-config';
+import { kv } from '@vercel/kv';
 
 export const config = {
   runtime: 'edge',
 };
 
-// ✅ 统一使用与前端相同的键名
 const ITEM_KEY = 'smartStorageData';
-
-// ✅ 从环境变量获取 Edge Config ID（Vercel 自动注入）
-const EDGE_CONFIG_ID = process.env.EDGE_CONFIG_ID;
-
-if (!EDGE_CONFIG_ID) {
-  throw new Error('Missing EDGE_CONFIG_ID. Please configure it in Vercel project environment variables.');
-}
 
 export default async function handler(req: Request): Promise<Response> {
   const headers = {
@@ -29,17 +21,13 @@ export default async function handler(req: Request): Promise<Response> {
   try {
     if (req.method === 'POST') {
       const body = await req.json();
-
-      // ✅ 正确调用 set(configId, key, value)
-      await set(EDGE_CONFIG_ID, ITEM_KEY, body);
-
+      await kv.set(ITEM_KEY, body);
       return new Response(JSON.stringify({ ok: true }), {
         status: 200,
         headers: { ...headers, 'Content-Type': 'application/json' },
       });
     } else {
-      // GET 请求：返回当前数据（可用于调试）
-      const data = await get(EDGE_CONFIG_ID, ITEM_KEY);
+      const data = await kv.get(ITEM_KEY);
       return new Response(JSON.stringify(data || {}), {
         status: 200,
         headers: { ...headers, 'Content-Type': 'application/json' },
