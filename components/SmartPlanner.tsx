@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { ChevronLeft, ChevronRight, Edit3, Save, CheckCircle2, Calendar as CalendarIcon, Target } from 'lucide-react';
 import { Task, DailyReview, Mood, DayData } from '../types';
+import { get, set } from '@vercel/edge-config';
 
 // --- Helpers ---
 
@@ -31,30 +32,33 @@ const MORANDI_BORDERS = [
   'border-[#EAD18F]',
 ];
 
-// --- Cloud Sync Utils ---
-const SYNC_URL = '/api/sync';
+// --- Edge Config Sync ---
+const EDGE_CONFIG_ID = process.env.NEXT_PUBLIC_EDGE_CONFIG_ID;
 
-async function loadFromCloud(): Promise<Record<string, DayData>> {
+if (!EDGE_CONFIG_ID) {
+  throw new Error('Missing NEXT_PUBLIC_EDGE_CONFIG_ID environment variable. Please add it in Vercel or .env.local');
+}
+
+const ITEM_KEY = 'smartStorageData';
+
+async function loadFromEdgeConfig(): Promise<Record<string, DayData>> {
   try {
-    const res = await fetch(SYNC_URL);
-    if (!res.ok) throw new Error('Failed to load');
-    const data = await res.json();
-    return typeof data === 'object' && data !== null ? data : {};
+    const data = await get(EDGE_CONFIG_ID, ITEM_KEY);
+    if (typeof data === 'object' && data !== null) {
+      return data;
+    }
+    return {};
   } catch (err) {
-    console.warn('Failed to load from cloud, using empty history');
+    console.warn('Failed to load from Edge Config, using empty history:', err);
     return {};
   }
 }
 
-async function saveToCloud(history: Record<string, DayData>): Promise<void> {
+async function saveToEdgeConfig(history: Record<string, DayData>): Promise<void> {
   try {
-    await fetch(SYNC_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(history),
-    });
+    await set(EDGE_CONFIG_ID, ITEM_KEY, history);
   } catch (err) {
-    console.error('Failed to save to cloud:', err);
+    console.error('Failed to save to Edge Config:', err);
   }
 }
 
@@ -67,18 +71,18 @@ const SmartPlanner: React.FC = () => {
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [isLoaded, setIsLoaded] = useState(false);
 
-  // Load from cloud on first render
+  // Load from Edge Config on first render
   useEffect(() => {
-    loadFromCloud().then((data) => {
+    loadFromEdgeConfig().then((data) => {
       setHistory(data);
       setIsLoaded(true);
     });
   }, []);
 
-  // Auto-save to cloud whenever history changes (and after initial load)
+  // Auto-save to Edge Config whenever history changes (with debounce)
   useEffect(() => {
     if (isLoaded) {
-      const timeout = setTimeout(() => saveToCloud(history), 500); // debounce
+      const timeout = setTimeout(() => saveToEdgeConfig(history), 500);
       return () => clearTimeout(timeout);
     }
   }, [history, isLoaded]);
