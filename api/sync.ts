@@ -22,7 +22,7 @@ export default async function handler(req: Request): Promise<Response> {
   try {
     if (req.method === 'POST') {
       const body = await req.json();
-      // ✅ FIXED: expire → ex (Vercel KV uses 'ex' for expiration in seconds)
+      // ✅ FIXED: expire → ex (in seconds)
       await kv.set(ITEM_KEY, body, { ex: 60 * 60 * 24 * 30 }); // 30 days
       return new Response(JSON.stringify({ ok: true }), { status: 200, headers });
     } else {
