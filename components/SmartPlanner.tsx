@@ -52,10 +52,27 @@ async function loadFromAPI(): Promise<Record<string, DayData>> {
 
 async function saveToAPI(history: Record<string, DayData>): Promise<void> {
   try {
+    // 🔥 关键修复：过滤掉“纯初始模板”的条目，避免污染 KV
+    const cleanedHistory: Record<string, DayData> = {};
+    for (const [key, dayData] of Object.entries(history)) {
+      // 检查是否为“真实数据”：review 有内容 或 tasks 有进度 > 0
+      const hasRealReview =
+        dayData.review.mood !== null ||
+        dayData.review.readingListening.trim() !== '' ||
+        dayData.review.speakingWriting.trim() !== '';
+
+      const hasProgress = dayData.tasks.some(task => task.progress > 0);
+
+      if (hasRealReview || hasProgress) {
+        cleanedHistory[key] = dayData;
+      }
+      // 否则：跳过（不保存纯默认模板）
+    }
+
     const res = await fetch('/api/sync', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(history),
+      body: JSON.stringify(cleanedHistory),
     });
     if (!res.ok) {
       throw new Error(`HTTP ${res.status}: ${await res.text()}`);
