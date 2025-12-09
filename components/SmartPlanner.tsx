@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { ChevronLeft, ChevronRight, Edit3, Save, CheckCircle2, Calendar as CalendarIcon, Target } from 'lucide-react';
 import { Task, DailyReview, Mood, DayData } from '../types';
-import { get, set } from '@vercel/edge-config';
+import { get } from '@vercel/edge-config'; // ✅ 只导入 get
 
 // --- Helpers ---
 
@@ -54,11 +54,19 @@ async function loadFromEdgeConfig(): Promise<Record<string, DayData>> {
   }
 }
 
-async function saveToEdgeConfig(history: Record<string, DayData>): Promise<void> {
+// ✅ 新增：通过 API 保存数据
+async function saveToAPI(history: Record<string, DayData>): Promise<void> {
   try {
-    await set(EDGE_CONFIG_ID, ITEM_KEY, history);
+    const res = await fetch('/api/sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(history),
+    });
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+    }
   } catch (err) {
-    console.error('Failed to save to Edge Config:', err);
+    console.error('Failed to save via /api/sync:', err);
   }
 }
 
@@ -79,10 +87,10 @@ const SmartPlanner: React.FC = () => {
     });
   }, []);
 
-  // Auto-save to Edge Config whenever history changes (with debounce)
+  // Auto-save to API whenever history changes (with debounce)
   useEffect(() => {
     if (isLoaded) {
-      const timeout = setTimeout(() => saveToEdgeConfig(history), 500);
+      const timeout = setTimeout(() => saveToAPI(history), 500);
       return () => clearTimeout(timeout);
     }
   }, [history, isLoaded]);
