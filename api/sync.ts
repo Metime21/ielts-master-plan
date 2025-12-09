@@ -1,15 +1,17 @@
 // api/sync.ts
 import { get, set } from '@vercel/edge-config';
 
+export const config = {
+  runtime: 'edge',
+};
+
 export default async function handler(req: Request): Promise<Response> {
-  // 允许跨域请求
   const headers = {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type',
   };
 
-  // 处理预检请求（OPTIONS）
   if (req.method === 'OPTIONS') {
     return new Response(null, { status: 204, headers });
   }
@@ -30,7 +32,7 @@ export default async function handler(req: Request): Promise<Response> {
       });
     }
   } catch (error) {
-    console.error('Error in sync API:', error);
+    console.error('Sync API error:', error);
     return new Response(JSON.stringify({ error: 'Internal Server Error' }), {
       status: 500,
       headers: { ...headers, 'Content-Type': 'application/json' },
