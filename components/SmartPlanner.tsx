@@ -1,7 +1,7 @@
-
 import React, { useState, useEffect } from 'react';
 import { ChevronLeft, ChevronRight, Edit3, Save, CheckCircle2, Calendar as CalendarIcon, Target } from 'lucide-react';
 import { Task, DailyReview, Mood, DayData } from '../types';
+import { loadPlannerData, savePlannerData } from '../utils/plannerStorage'; // ← 新增导入
 
 // --- Helpers ---
 
@@ -36,17 +36,29 @@ const MORANDI_BORDERS = [
 // --- Components ---
 
 const SmartPlanner: React.FC = () => {
-  const [currentDate, setCurrentDate] = useState(new Date()); // For calendar navigation
-  const [selectedDate, setSelectedDate] = useState(new Date()); // The actual selected day
+  const [currentDate, setCurrentDate] = useState(new Date());
+  const [selectedDate, setSelectedDate] = useState(new Date());
   const [history, setHistory] = useState<Record<string, DayData>>({});
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
+
+  // 加载历史数据（仅一次）
+  useEffect(() => {
+    const saved = loadPlannerData();
+    if (saved && typeof saved === 'object') {
+      setHistory(saved);
+    }
+  }, []);
+
+  // 保存历史数据（每次 history 变化时）
+  useEffect(() => {
+    savePlannerData(history);
+  }, [history]);
 
   // Derived state for the currently selected day
   const dateKey = formatDateKey(selectedDate);
   
-  // Initialize data for selected date if not exists
   const currentData: DayData = history[dateKey] || {
-    tasks: JSON.parse(JSON.stringify(INITIAL_TASKS)), // Deep copy to avoid ref issues
+    tasks: JSON.parse(JSON.stringify(INITIAL_TASKS)),
     review: { ...INITIAL_REVIEW }
   };
 
@@ -105,7 +117,6 @@ const SmartPlanner: React.FC = () => {
 
   const renderCalendarDays = () => {
     const days = [];
-    // Empty slots for days before 1st
     for (let i = 0; i < firstDay; i++) {
       days.push(<div key={`empty-${i}`} className="h-6 w-6" />);
     }
@@ -303,7 +314,6 @@ const SmartPlanner: React.FC = () => {
                               {task.progress === 100 && <CheckCircle2 size={12} className="text-green-500 flex-shrink-0" />}
                            </div>
                            <div className="text-xs font-bold text-academic-800 truncate mb-1">{task.subject}</div>
-                           {/* Enlarged Content Text */}
                            <div className="text-lg font-medium text-slate-700 leading-snug break-words">{task.content}</div>
                          </div>
                        )}
@@ -316,13 +326,11 @@ const SmartPlanner: React.FC = () => {
                        </button>
                     </div>
 
-                    {/* Progress Bar - Clickable segments */}
                     <div 
                       className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden cursor-pointer relative group/progress mt-4"
                       onClick={(e) => handleProgressClick(e, task.id)}
                       title="Click to set progress (0%, 25%, 50%, 75%, 100%)"
                     >
-                      {/* Invisible segments for better UX */}
                       <div className="absolute inset-0 flex opacity-0 group-hover/progress:opacity-20 transition-opacity z-10">
                          <div className="w-[12.5%] h-full"></div>
                          <div className="w-[25%] h-full border-r border-black"></div>
