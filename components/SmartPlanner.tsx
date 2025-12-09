@@ -39,7 +39,7 @@ async function loadFromAPI(): Promise<Record<string, DayData>> {
     const res = await fetch('/api/sync');
     if (res.ok) {
       const data = await res.json();
-      if (typeof data === 'object' && data !== null) {
+      if (typeof data === 'object' && data !== null && !Array.isArray(data)) {
         return data;
       }
     }
@@ -52,7 +52,7 @@ async function loadFromAPI(): Promise<Record<string, DayData>> {
   if (localData) {
     try {
       const parsed = JSON.parse(localData);
-      if (typeof parsed === 'object' && parsed !== null) {
+      if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
         return parsed;
       }
     } catch (e) {
@@ -65,7 +65,7 @@ async function loadFromAPI(): Promise<Record<string, DayData>> {
 
 async function saveToAPI(history: Record<string, DayData>): Promise<void> {
   try {
-    // Filter out pure template entries
+    // Clean out template-only days
     const cleanedHistory: Record<string, DayData> = {};
     for (const [key, dayData] of Object.entries(history)) {
       const hasRealReview =
@@ -87,14 +87,19 @@ async function saveToAPI(history: Record<string, DayData>): Promise<void> {
     });
 
     if (!res.ok) {
-      throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+      throw new Error(`HTTP ${res.status}`);
     }
   } catch (err) {
-    console.error('Failed to save via /api/sync:', err);
-    // Optional: show user-friendly message
-    if (typeof window !== 'undefined') {
-      alert('📝 保存失败，请检查网络连接。数据已暂存于本地，下次打开可恢复。');
-    }
+    // ❌ No alert! Only log for debugging.
+    console.error('Sync failed (data saved locally):', err);
+    // Still keep localStorage updated below
+  }
+
+  // Always persist to localStorage as backup
+  try {
+    localStorage.setItem('plannerLocalHistory', JSON.stringify(history));
+  } catch (e) {
+    console.warn('Failed to save to localStorage:', e);
   }
 }
 
@@ -104,9 +109,9 @@ const SmartPlanner: React.FC = () => {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [history, setHistory] = useState<Record<string, DayData>>({});
-  const [editingTaskId, setEditingTaskId] = useState<string | null>(null); // ✅ 关键修复：声明 editingTaskId
+  const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
 
-  // Load data on mount
+  // Load on mount
   useEffect(() => {
     loadFromAPI().then((data) => {
       setHistory(data);
@@ -120,27 +125,15 @@ const SmartPlanner: React.FC = () => {
     review: { ...INITIAL_REVIEW }
   };
 
-  // --- Core Update Function (with immediate save & localStorage) ---
   const updateHistory = (tasks: Task[], review: DailyReview) => {
     const newHistory = {
       ...history,
       [dateKey]: { tasks, review }
     };
-
     setHistory(newHistory);
-
-    // ✅ Persist to localStorage immediately
-    try {
-      localStorage.setItem('plannerLocalHistory', JSON.stringify(newHistory));
-    } catch (e) {
-      console.warn('Failed to save to localStorage:', e);
-    }
-
-    // ✅ Send to server immediately
-    saveToAPI(newHistory);
+    saveToAPI(newHistory); // Auto-save silently
   };
 
-  // --- Handlers ---
   const handleTaskChange = (taskId: string, field: keyof Task, value: any) => {
     const newTasks = currentData.tasks.map(t => t.id === taskId ? { ...t, [field]: value } : t);
     updateHistory(newTasks, currentData.review);
@@ -177,7 +170,7 @@ const SmartPlanner: React.FC = () => {
     setCurrentDate(newDate);
   };
 
-  // --- Calendar Rendering Logic ---
+  // --- Calendar Rendering ---
   const year = currentDate.getFullYear();
   const month = currentDate.getMonth();
   const daysInMonth = getDaysInMonth(year, month);
