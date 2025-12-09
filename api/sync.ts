@@ -1,39 +1,29 @@
 // api/sync.ts
+import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { kv } from '@vercel/kv';
-
-export const config = {
-  runtime: 'edge',
-};
 
 const ITEM_KEY = 'smartStorageData';
 
-export default async function handler(req: Request): Promise<Response> {
-  const headers = {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type',
-    'Content-Type': 'application/json',
-  };
+export default async function handler(req: VercelRequest, res: VercelResponse) {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
   if (req.method === 'OPTIONS') {
-    return new Response(null, { status: 204, headers });
+    return res.status(204).end();
   }
 
   try {
     if (req.method === 'POST') {
-      const body = await req.json();
-      // ✅ FIXED: expire → ex (in seconds)
-      await kv.set(ITEM_KEY, body, { ex: 60 * 60 * 24 * 30 }); // 30 days
-      return new Response(JSON.stringify({ ok: true }), { status: 200, headers });
+      const body = req.body; // ✅ Vercel 自动解析 JSON
+      await kv.set(ITEM_KEY, body, { ex: 60 * 60 * 24 * 30 }); // 30 days in seconds
+      return res.status(200).json({ ok: true });
     } else {
       const data = await kv.get(ITEM_KEY);
-      return new Response(JSON.stringify(data || {}), { status: 200, headers });
+      return res.status(200).json(data || {});
     }
   } catch (error) {
     console.error('Sync API error:', error);
-    return new Response(JSON.stringify({ error: 'Internal Server Error' }), {
-      status: 500,
-      headers,
-    });
+    return res.status(500).json({ error: 'Internal Server Error' });
   }
 }
