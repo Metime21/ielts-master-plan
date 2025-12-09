@@ -43,19 +43,31 @@ async function loadFromAPI(): Promise<Record<string, DayData>> {
         return data;
       }
     }
-    return {};
   } catch (err) {
-    console.warn('Failed to load from /api/sync, using empty history:', err);
-    return {};
+    console.warn('Failed to load from /api/sync:', err);
   }
+
+  // Fallback to localStorage
+  const localData = localStorage.getItem('plannerLocalHistory');
+  if (localData) {
+    try {
+      const parsed = JSON.parse(localData);
+      if (typeof parsed === 'object' && parsed !== null) {
+        return parsed;
+      }
+    } catch (e) {
+      console.warn('Invalid localStorage data:', e);
+    }
+  }
+
+  return {};
 }
 
 async function saveToAPI(history: Record<string, DayData>): Promise<void> {
   try {
-    // 🔥 关键修复：过滤掉“纯初始模板”的条目，避免污染 KV
+    // Filter out pure template entries
     const cleanedHistory: Record<string, DayData> = {};
     for (const [key, dayData] of Object.entries(history)) {
-      // 检查是否为“真实数据”：review 有内容 或 tasks 有进度 > 0
       const hasRealReview =
         dayData.review.mood !== null ||
         dayData.review.readingListening.trim() !== '' ||
@@ -66,7 +78,6 @@ async function saveToAPI(history: Record<string, DayData>): Promise<void> {
       if (hasRealReview || hasProgress) {
         cleanedHistory[key] = dayData;
       }
-      // 否则：跳过（不保存纯默认模板）
     }
 
     const res = await fetch('/api/sync', {
@@ -74,11 +85,16 @@ async function saveToAPI(history: Record<string, DayData>): Promise<void> {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(cleanedHistory),
     });
+
     if (!res.ok) {
       throw new Error(`HTTP ${res.status}: ${await res.text()}`);
     }
   } catch (err) {
     console.error('Failed to save via /api/sync:', err);
+    // Optional: show user-friendly message
+    if (typeof window !== 'undefined') {
+      alert('📝 保存失败，请检查网络连接。数据已暂存于本地，下次打开可恢复。');
+    }
   }
 }
 
@@ -88,24 +104,13 @@ const SmartPlanner: React.FC = () => {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [history, setHistory] = useState<Record<string, DayData>>({});
-  const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
-  const [isLoaded, setIsLoaded] = useState(false);
 
-  // Load data from /api/sync on mount
+  // Load data on mount
   useEffect(() => {
     loadFromAPI().then((data) => {
       setHistory(data);
-      setIsLoaded(true);
     });
   }, []);
-
-  // Auto-save with debounce when history changes
-  useEffect(() => {
-    if (isLoaded) {
-      const timeout = setTimeout(() => saveToAPI(history), 500);
-      return () => clearTimeout(timeout);
-    }
-  }, [history, isLoaded]);
 
   const dateKey = formatDateKey(selectedDate);
   
@@ -114,8 +119,27 @@ const SmartPlanner: React.FC = () => {
     review: { ...INITIAL_REVIEW }
   };
 
-  // --- Handlers ---
+  // --- Core Update Function (with immediate save & localStorage) ---
+  const updateHistory = (tasks: Task[], review: DailyReview) => {
+    const newHistory = {
+      ...history,
+      [dateKey]: { tasks, review }
+    };
 
+    setHistory(newHistory);
+
+    // ✅ Persist to localStorage immediately
+    try {
+      localStorage.setItem('plannerLocalHistory', JSON.stringify(newHistory));
+    } catch (e) {
+      console.warn('Failed to save to localStorage:', e);
+    }
+
+    // ✅ Send to server immediately
+    saveToAPI(newHistory);
+  };
+
+  // --- Handlers ---
   const handleTaskChange = (taskId: string, field: keyof Task, value: any) => {
     const newTasks = currentData.tasks.map(t => t.id === taskId ? { ...t, [field]: value } : t);
     updateHistory(newTasks, currentData.review);
@@ -145,13 +169,6 @@ const SmartPlanner: React.FC = () => {
   const handleReviewChange = (field: keyof DailyReview, value: any) => {
     const newReview = { ...currentData.review, [field]: value };
     updateHistory(currentData.tasks, newReview);
-  };
-
-  const updateHistory = (tasks: Task[], review: DailyReview) => {
-    setHistory(prev => ({
-      ...prev,
-      [dateKey]: { tasks, review }
-    }));
   };
 
   const changeMonth = (offset: number) => {
