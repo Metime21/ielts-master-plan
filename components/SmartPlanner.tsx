@@ -104,6 +104,7 @@ const SmartPlanner: React.FC = () => {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [history, setHistory] = useState<Record<string, DayData>>({});
+  const [editingTaskId, setEditingTaskId] = useState<string | null>(null); // ✅ 关键修复：声明 editingTaskId
 
   // Load data on mount
   useEffect(() => {
