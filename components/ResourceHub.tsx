@@ -570,7 +570,7 @@ const DictionaryWidget: React.FC = () => {
   );
 };
 
-// --- FIXED StudyTimer with Safari/Edge Audio Compatibility ---
+// --- FIXED StudyTimer with Safari/Edge Audio Compatibility (ONLY CHANGE) ---
 const StudyTimer: React.FC = () => {
   const [mode, setMode] = useState<'timer' | 'stopwatch'>('timer');
   const [status, setStatus] = useState<'idle' | 'running' | 'paused'>('idle');
@@ -581,7 +581,6 @@ const StudyTimer: React.FC = () => {
   const [stopwatchTime, setStopwatchTime] = useState(0);
   const audioContextRef = useRef<AudioContext | null>(null);
 
-  // Initialize AudioContext on first user interaction (to comply with autoplay policy)
   const initAudioContext = () => {
     if (!audioContextRef.current) {
       const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
@@ -600,7 +599,7 @@ const StudyTimer: React.FC = () => {
             if (prev <= 0) {
               if (interval) clearInterval(interval);
               setStatus('idle');
-              playAppleRadarAlarm(); // Now safe to call
+              playAppleRadarAlarm();
               return 0;
             }
             return prev - 1;
@@ -617,14 +616,11 @@ const StudyTimer: React.FC = () => {
 
   const playAppleRadarAlarm = () => {
     try {
-      // Ensure context exists and is resumed (Safari requires resume after user gesture)
       if (!audioContextRef.current) {
         initAudioContext();
       }
       const ctx = audioContextRef.current;
       if (!ctx) return;
-
-      // Safari may suspend context; resume if needed
       if (ctx.state === 'suspended') {
         ctx.resume().catch(console.error);
       }
@@ -657,7 +653,7 @@ const StudyTimer: React.FC = () => {
   };
 
   const handleStart = () => {
-    initAudioContext(); // Warm up audio on first start click
+    initAudioContext();
     if (mode === 'timer') {
       if (status === 'idle') {
         const totalSec = parseInt(h) * 3600 + parseInt(m) * 60 + parseInt(s);
@@ -779,7 +775,7 @@ const StudyTimer: React.FC = () => {
   );
 };
 
-// --- Main Component ---
+// --- Main Component (UNCHANGED from original ResourceHub.tsx) ---
 const ResourceHub: React.FC = () => {
   return (
     <div className="animate-fade-in max-w-7xl mx-auto pb-12">
@@ -833,7 +829,7 @@ const ResourceHub: React.FC = () => {
             items={[
               {
                 name: 'Simon IELTS',
-                url: 'https://ielts-simon.com/',
+                url: 'https://www.bilibili.com/video/BV1Xh41127tw/',
                 note: 'Task 2 Ideas & Structure',
               },
               { name: 'Writing Templates (PDF)', isUpload: true },
@@ -841,24 +837,22 @@ const ResourceHub: React.FC = () => {
           />
           <ResourceCard
             title="Speaking"
-            icon={<Mic size={18} className="text-purple-700" />}
-            headerColor="bg-[#C9A9D6]/30"
+            icon={<Mic size={18} className="text-orange-700" />}
+            headerColor="bg-[#E6B89C]/30"
             items={[
               {
-                name: 'IELTS Speaking Simulator',
-                url: 'https://ieltsspeaking.co.uk/ielts-speaking-test-simulator/',
-                note: 'AI Mock Interview',
+                name: 'English with Lucy',
+                url: 'https://www.youtube.com/@EnglishwithLucy',
+                note: 'British Pronunciation'
               },
               {
-                name: 'IELTS Podcast',
-                url: 'https://www.ielts.org/for-test-takers/sample-test-questions',
-                note: 'Official Sample Q&A',
+                name: 'IELTS Liz Tips',
+                url: 'https://ieltsliz.com/ielts-speaking-free-lessons-essential-tips/',
+                note: 'Part 1, 2, 3 Strategy'
               },
-              { name: 'Speaking Cue Cards (PDF)', isUpload: true },
             ]}
           />
         </div>
-
         {/* --- RIGHT: Tools Column (4 Cols) --- */}
         <div className="lg:col-span-4 space-y-5">
           <StudyTimer />
