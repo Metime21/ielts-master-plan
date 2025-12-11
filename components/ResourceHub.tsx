@@ -24,7 +24,6 @@ import {
 // --- API Helper Function (Fixed: Match Qwen API Format) ---
 const translateAndDefine = async (text: string): Promise<string> => {
   const prompt = `You are a professional IELTS English dictionary. For the word or phrase "${text}", provide ONLY the following information in EXACTLY this format with NO extra text, explanations, greetings, or markdown:
-
 **Part of Speech:** [pos]
 **Pronunciation:** [ipa]
 **Definition:** [definition]
@@ -47,9 +46,7 @@ Rules:
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        messages: [
-          { role: 'user', content: prompt }
-        ],
+        messages: [{ role: 'user', content: prompt }],
         systemInstruction: 'You are an expert IELTS vocabulary assistant.',
       }),
     });
@@ -68,11 +65,9 @@ Rules:
 };
 
 // --- Sub-components (Unchanged) ---
-
 interface FileManagerProps {
   title: string;
 }
-
 const FileManager: React.FC<FileManagerProps> = ({ title }) => {
   const [files, setFiles] = useState<{ name: string; url: string }[]>([]);
   const [isDeleteMode, setIsDeleteMode] = useState(false);
@@ -130,7 +125,6 @@ const FileManager: React.FC<FileManagerProps> = ({ title }) => {
             accept=".pdf"
             onChange={handleFileUpload}
           />
-
           <button
             onClick={toggleDeleteMode}
             className={`p-1 rounded-md transition-colors ${
@@ -144,7 +138,6 @@ const FileManager: React.FC<FileManagerProps> = ({ title }) => {
           </button>
         </div>
       </div>
-
       <div className="space-y-1.5 max-h-40 overflow-y-auto custom-scrollbar">
         {files.length === 0 ? (
           <div className="text-center py-3 text-[10px] text-slate-400 border-2 border-dashed border-slate-200 rounded-lg">
@@ -174,7 +167,6 @@ const FileManager: React.FC<FileManagerProps> = ({ title }) => {
               ) : (
                 <FileText size={14} className="text-blue-500 flex-shrink-0" />
               )}
-
               <div className="flex-1 min-w-0 overflow-hidden">
                 {isDeleteMode ? (
                   <span
@@ -199,7 +191,6 @@ const FileManager: React.FC<FileManagerProps> = ({ title }) => {
           ))
         )}
       </div>
-
       {isDeleteMode && selectedIndices.size > 0 && (
         <button
           onClick={deleteSelected}
@@ -225,8 +216,12 @@ interface ResourceCardProps {
   icon: React.ReactNode;
   headerColor: string;
 }
-
-const ResourceCard: React.FC<ResourceCardProps> = ({ title, items: initialItems, icon, headerColor }) => {
+const ResourceCard: React.FC<ResourceCardProps> = ({
+  title,
+  items: initialItems,
+  icon,
+  headerColor,
+}) => {
   const [items, setItems] = useState<ResourceItem[]>(initialItems);
   const [isEditing, setIsEditing] = useState(false);
 
@@ -242,7 +237,6 @@ const ResourceCard: React.FC<ResourceCardProps> = ({ title, items: initialItems,
   const handleUpdateItem = (index: number, field: keyof ResourceItem, value: string) => {
     const newItems = [...items];
     newItems[index] = { ...newItems[index], [field]: value };
-
     if (field === 'url' && !newItems[index].name && value) {
       try {
         const urlObj = new URL(value);
@@ -253,27 +247,30 @@ const ResourceCard: React.FC<ResourceCardProps> = ({ title, items: initialItems,
         // Invalid URL, ignore
       }
     }
-
     setItems(newItems);
   };
 
   return (
     <div className="bg-white rounded-2xl overflow-hidden shadow-sm hover:shadow-lg transition-all duration-300 border border-slate-100 flex flex-col h-full group">
-      <div className={`px-4 py-2 flex items-center justify-between ${headerColor} transition-colors border-b border-black/5`}>
+      <div
+        className={`px-4 py-2 flex items-center justify-between ${headerColor} transition-colors border-b border-black/5`}
+      >
         <div className="flex items-center gap-2.5">
-          <div className="bg-white/60 p-1.5 rounded-lg text-slate-800 backdrop-blur-sm shadow-sm">{icon}</div>
+          <div className="bg-white/60 p-1.5 rounded-lg text-slate-800 backdrop-blur-sm shadow-sm">
+            {icon}
+          </div>
           <h3 className="text-sm font-bold text-slate-800 tracking-tight">{title}</h3>
         </div>
-
         <button
           onClick={() => setIsEditing(!isEditing)}
-          className={`p-1.5 rounded-lg transition-colors ${isEditing ? 'bg-white text-emerald-600 shadow-sm' : 'hover:bg-white/50 text-slate-600'}`}
+          className={`p-1.5 rounded-lg transition-colors ${
+            isEditing ? 'bg-white text-emerald-600 shadow-sm' : 'hover:bg-white/50 text-slate-600'
+          }`}
           title={isEditing ? 'Save Changes' : 'Edit Resources'}
         >
           {isEditing ? <Check size={14} /> : <Edit size={14} />}
         </button>
       </div>
-
       <div className="p-3 space-y-2 flex-1 bg-white">
         {items.map((item, idx) => (
           <div key={idx} className="group/item">
@@ -332,7 +329,11 @@ const ResourceCard: React.FC<ResourceCardProps> = ({ title, items: initialItems,
                     <span className="text-xs font-bold text-slate-700 group-hover/item:text-slate-900 transition-colors block truncate">
                       {item.name}
                     </span>
-                    {item.note && <p className="text-[9px] text-slate-400 mt-0.5 uppercase tracking-wide truncate">{item.note}</p>}
+                    {item.note && (
+                      <p className="text-[9px] text-slate-400 mt-0.5 uppercase tracking-wide truncate">
+                        {item.note}
+                      </p>
+                    )}
                   </div>
                   <ExternalLink size={12} className="text-slate-300 group-hover/item:text-slate-600 transition-colors flex-shrink-0 ml-2" />
                 </div>
@@ -340,7 +341,6 @@ const ResourceCard: React.FC<ResourceCardProps> = ({ title, items: initialItems,
             )}
           </div>
         ))}
-
         {isEditing && (
           <button
             onClick={handleAddItem}
@@ -355,7 +355,6 @@ const ResourceCard: React.FC<ResourceCardProps> = ({ title, items: initialItems,
 };
 
 // --- ENHANCED DictionaryWidget with Robust Parser ---
-
 const DictionaryWidget: React.FC = () => {
   const [query, setQuery] = useState('');
   const [result, setResult] = useState<string | null>(null);
@@ -379,12 +378,10 @@ const DictionaryWidget: React.FC = () => {
     setLoading(true);
     setResult(null);
     setShowHistory(false);
-
     setHistory((prev) => {
       const newHistory = [text, ...prev.filter((h) => h !== text)].slice(0, 5);
       return newHistory;
     });
-
     const data = await translateAndDefine(text);
     setResult(data);
     setLoading(false);
@@ -413,7 +410,6 @@ const DictionaryWidget: React.FC = () => {
   const parseResult = (raw: string) => {
     const parsed: Record<string, string> = {};
     const lines = raw.split('\n');
-
     for (const line of lines) {
       if (line.startsWith('**Part of Speech:**')) {
         parsed.pos = line.replace('**Part of Speech:**', '').trim();
@@ -451,7 +447,6 @@ const DictionaryWidget: React.FC = () => {
           <Globe size={10} /> Google
         </button>
       </div>
-
       <div className="relative mb-4">
         <div className="flex gap-2">
           <div className="relative flex-1">
@@ -476,7 +471,8 @@ const DictionaryWidget: React.FC = () => {
                       onClick={() => handleHistorySelect(item)}
                       className="px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 cursor-pointer border-b border-slate-50 last:border-none flex justify-between items-center group"
                     >
-                      {item} <ExternalLink size={12} className="opacity-0 group-hover:opacity-60" />
+                      {item}
+                      <ExternalLink size={12} className="opacity-0 group-hover:opacity-60" />
                     </li>
                   ))}
                 </ul>
@@ -496,7 +492,6 @@ const DictionaryWidget: React.FC = () => {
           </button>
         </div>
       </div>
-
       {result && (
         <div className="bg-gradient-to-br from-slate-50 to-white rounded-xl p-4 border border-slate-200 relative animate-fade-in">
           <button
@@ -505,7 +500,6 @@ const DictionaryWidget: React.FC = () => {
           >
             <X size={14} />
           </button>
-
           <div className="flex items-center gap-2 mb-3">
             <h4 className="text-lg font-bold text-slate-800">{query}</h4>
             <button
@@ -516,7 +510,6 @@ const DictionaryWidget: React.FC = () => {
               <Volume2 size={16} />
             </button>
           </div>
-
           {parsedResult ? (
             <div className="space-y-2 text-sm">
               {parsedResult.pos && (
@@ -577,22 +570,29 @@ const DictionaryWidget: React.FC = () => {
   );
 };
 
-// --- StudyTimer (Unchanged) ---
-
+// --- FIXED StudyTimer with Safari/Edge Audio Compatibility ---
 const StudyTimer: React.FC = () => {
   const [mode, setMode] = useState<'timer' | 'stopwatch'>('timer');
   const [status, setStatus] = useState<'idle' | 'running' | 'paused'>('idle');
-
   const [h, setH] = useState('00');
   const [m, setM] = useState('25');
   const [s, setS] = useState('00');
-
   const [timeLeft, setTimeLeft] = useState(25 * 60);
   const [stopwatchTime, setStopwatchTime] = useState(0);
+  const audioContextRef = useRef<AudioContext | null>(null);
+
+  // Initialize AudioContext on first user interaction (to comply with autoplay policy)
+  const initAudioContext = () => {
+    if (!audioContextRef.current) {
+      const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
+      if (AudioContext) {
+        audioContextRef.current = new AudioContext();
+      }
+    }
+  };
 
   useEffect(() => {
     let interval: ReturnType<typeof setInterval> | null = null;
-
     if (status === 'running') {
       interval = setInterval(() => {
         if (mode === 'timer') {
@@ -600,7 +600,7 @@ const StudyTimer: React.FC = () => {
             if (prev <= 0) {
               if (interval) clearInterval(interval);
               setStatus('idle');
-              playAppleRadarAlarm();
+              playAppleRadarAlarm(); // Now safe to call
               return 0;
             }
             return prev - 1;
@@ -610,7 +610,6 @@ const StudyTimer: React.FC = () => {
         }
       }, 1000);
     }
-
     return () => {
       if (interval) clearInterval(interval);
     };
@@ -618,26 +617,30 @@ const StudyTimer: React.FC = () => {
 
   const playAppleRadarAlarm = () => {
     try {
-      const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
-      if (!AudioContext) return;
+      // Ensure context exists and is resumed (Safari requires resume after user gesture)
+      if (!audioContextRef.current) {
+        initAudioContext();
+      }
+      const ctx = audioContextRef.current;
+      if (!ctx) return;
 
-      const ctx = new AudioContext();
+      // Safari may suspend context; resume if needed
+      if (ctx.state === 'suspended') {
+        ctx.resume().catch(console.error);
+      }
+
       const now = ctx.currentTime;
-
       const playPulse = (time: number) => {
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
         osc.connect(gain);
         gain.connect(ctx.destination);
-
         osc.type = 'triangle';
         osc.frequency.setValueAtTime(1200, time);
         osc.frequency.exponentialRampToValueAtTime(800, time + 0.1);
-
         gain.gain.setValueAtTime(0, time);
         gain.gain.linearRampToValueAtTime(0.3, time + 0.01);
         gain.gain.linearRampToValueAtTime(0, time + 0.1);
-
         osc.start(time);
         osc.stop(time + 0.1);
       };
@@ -649,14 +652,15 @@ const StudyTimer: React.FC = () => {
         playPulse(base + 0.3);
       }
     } catch (e) {
-      console.error('Audio error', e);
+      console.error('Audio alarm failed:', e);
     }
   };
 
   const handleStart = () => {
+    initAudioContext(); // Warm up audio on first start click
     if (mode === 'timer') {
       if (status === 'idle') {
-        const totalSec = (parseInt(h) * 3600) + (parseInt(m) * 60) + parseInt(s);
+        const totalSec = parseInt(h) * 3600 + parseInt(m) * 60 + parseInt(s);
         setTimeLeft(totalSec > 0 ? totalSec : 0);
       }
       if (timeLeft > 0 || status === 'idle') setStatus('running');
@@ -666,7 +670,6 @@ const StudyTimer: React.FC = () => {
   };
 
   const handlePause = () => setStatus('paused');
-
   const handleReset = () => {
     setStatus('idle');
     if (mode === 'stopwatch') {
@@ -678,7 +681,6 @@ const StudyTimer: React.FC = () => {
     const hh = Math.floor(totalSec / 3600);
     const mm = Math.floor((totalSec % 3600) / 60);
     const ss = totalSec % 60;
-
     if (hh > 0) {
       return `${hh}:${mm.toString().padStart(2, '0')}:${ss.toString().padStart(2, '0')}`;
     }
@@ -717,7 +719,6 @@ const StudyTimer: React.FC = () => {
           Stopwatch
         </button>
       </div>
-
       <div className="flex justify-center items-center h-24 mb-6">
         {mode === 'timer' && status === 'idle' ? (
           <div className="flex items-center text-5xl font-light text-slate-800 tracking-tight gap-1">
@@ -751,7 +752,6 @@ const StudyTimer: React.FC = () => {
           </div>
         )}
       </div>
-
       <div className="flex justify-between items-center px-4">
         <button
           onClick={handleReset}
@@ -759,7 +759,6 @@ const StudyTimer: React.FC = () => {
         >
           {status === 'idle' && mode === 'timer' ? 'Clear' : 'Cancel'}
         </button>
-
         {status === 'running' ? (
           <button
             onClick={handlePause}
@@ -781,7 +780,6 @@ const StudyTimer: React.FC = () => {
 };
 
 // --- Main Component ---
-
 const ResourceHub: React.FC = () => {
   return (
     <div className="animate-fade-in max-w-7xl mx-auto pb-12">
@@ -791,7 +789,6 @@ const ResourceHub: React.FC = () => {
           <p className="text-slate-500 mt-1 flex items-center gap-2 text-sm">Curated materials for band 8.0+</p>
         </div>
       </div>
-
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
         {/* --- LEFT: Resources Grid (8 Cols) --- */}
         <div className="lg:col-span-8 grid grid-cols-1 md:grid-cols-2 gap-5">
@@ -805,47 +802,64 @@ const ResourceHub: React.FC = () => {
               { name: 'Vocabulary Lists (PDF)', isUpload: true },
             ]}
           />
-
           <ResourceCard
             title="Listening"
             icon={<Headphones size={18} className="text-blue-700" />}
             headerColor="bg-[#9BB7D4]/30"
             items={[
-              { name: 'BBC Learning English', url: 'https://www.youtube.com/@bbclearningenglish/videos', note: 'Global News & Accents' },
-              { name: 'VoiceTube', url: 'https://www.voicetube.com/channels/business-and-finance?sortBy=publishedAt&page=1', note: 'Video Dictionary' },
+              {
+                name: 'BBC Learning English',
+                url: 'https://www.youtube.com/@bbclearningenglish/videos',
+                note: 'Global News & Accents',
+              },
+              {
+                name: 'VoiceTube',
+                url: 'https://www.voicetube.com/channels/business-and-finance?sortBy=publishedAt&page=1',
+                note: 'Video Dictionary',
+              },
               { name: 'Cambridge Listening Practice', isUpload: true },
             ]}
           />
-
           <ResourceCard
             title="Reading"
             icon={<BookOpen size={18} className="text-rose-700" />}
             headerColor="bg-[#D4A5A5]/30"
             items={[{ name: 'Cambridge 11-19 Papers', isUpload: true }]}
           />
-
           <ResourceCard
             title="Writing"
             icon={<PenTool size={18} className="text-yellow-700" />}
             headerColor="bg-[#EAD18F]/30"
             items={[
-              { name: 'Simon IELTS', url: 'https://www.bilibili.com/video/BV1fhghzZE8a/?spm_id_from=333.1387.favlist.content.click&vd_source=1e206dd35c34dcc28320db7fcfbfa95e', note: 'Band 9 Structures' },
-              { name: 'IELTS Liz Essays', url: 'https://ieltsliz.com/ielts-writing-task-2/', note: 'Model Answers' },
+              {
+                name: 'Simon IELTS',
+                url: 'https://ielts-simon.com/',
+                note: 'Task 2 Ideas & Structure',
+              },
+              { name: 'Writing Templates (PDF)', isUpload: true },
             ]}
           />
-
           <ResourceCard
             title="Speaking"
-            icon={<Mic size={18} className="text-orange-700" />}
-            headerColor="bg-[#E6B89C]/30"
+            icon={<Mic size={18} className="text-purple-700" />}
+            headerColor="bg-[#C9A9D6]/30"
             items={[
-              { name: 'English with Lucy', url: 'https://www.youtube.com/@EnglishwithLucy', note: 'British Pronunciation' },
-              { name: 'IELTS Liz Tips', url: 'https://ieltsliz.com/ielts-speaking-free-lessons-essential-tips/', note: 'Part 1, 2, 3 Strategy' },
+              {
+                name: 'IELTS Speaking Simulator',
+                url: 'https://ieltsspeaking.co.uk/ielts-speaking-test-simulator/',
+                note: 'AI Mock Interview',
+              },
+              {
+                name: 'IELTS Podcast',
+                url: 'https://www.ielts.org/for-test-takers/sample-test-questions',
+                note: 'Official Sample Q&A',
+              },
+              { name: 'Speaking Cue Cards (PDF)', isUpload: true },
             ]}
           />
         </div>
 
-        {/* --- RIGHT: Tools Column (4 Cols) — FIXED ORDER --- */}
+        {/* --- RIGHT: Tools Column (4 Cols) --- */}
         <div className="lg:col-span-4 space-y-5">
           <StudyTimer />
           <DictionaryWidget />
