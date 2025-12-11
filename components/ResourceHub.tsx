@@ -406,7 +406,6 @@ const DictionaryWidget: React.FC = () => {
     }
   };
 
-  // Robust parser: handles missing fields gracefully
   const parseResult = (raw: string) => {
     const parsed: Record<string, string> = {};
     const lines = raw.split('\n');
@@ -775,7 +774,7 @@ const StudyTimer: React.FC = () => {
   );
 };
 
-// --- Main Component (UNCHANGED from original ResourceHub.tsx) ---
+// --- Main Component ---
 const ResourceHub: React.FC = () => {
   return (
     <div className="animate-fade-in max-w-7xl mx-auto pb-12">
@@ -829,10 +828,14 @@ const ResourceHub: React.FC = () => {
             items={[
               {
                 name: 'Simon IELTS',
-                url: 'https://www.bilibili.com/video/BV1Xh41127tw/',
-                note: 'Task 2 Ideas & Structure',
+                url: 'https://www.bilibili.com/video/BV1fhghzZE8a/',
+                note: 'Band 9 Structures',
               },
-              { name: 'Writing Templates (PDF)', isUpload: true },
+              {
+                name: 'IELTS Liz Essays',
+                url: 'https://ieltsliz.com/ielts-writing-task-2/',
+                note: 'Model Answers',
+              },
             ]}
           />
           <ResourceCard
@@ -843,12 +846,12 @@ const ResourceHub: React.FC = () => {
               {
                 name: 'English with Lucy',
                 url: 'https://www.youtube.com/@EnglishwithLucy',
-                note: 'British Pronunciation'
+                note: 'British Pronunciation',
               },
               {
                 name: 'IELTS Liz Tips',
                 url: 'https://ieltsliz.com/ielts-speaking-free-lessons-essential-tips/',
-                note: 'Part 1, 2, 3 Strategy'
+                note: 'Part 1, 2, 3 Strategy',
               },
             ]}
           />
