@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   ExternalLink,
   FileText,
@@ -21,7 +21,7 @@ import {
   LinkIcon,
 } from 'lucide-react';
 
-// --- API Helper Function (Fixed: Match Qwen API Format) ---
+// --- API Helper Function (Unchanged) ---
 const translateAndDefine = async (text: string): Promise<string> => {
   const prompt = `You are a professional IELTS English dictionary. For the word or phrase "${text}", provide ONLY the following information in EXACTLY this format with NO extra text, explanations, greetings, or markdown:
 **Part of Speech:** [pos]
@@ -42,9 +42,7 @@ Rules:
   try {
     const fetchResponse = await fetch('/api/gemini', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         messages: [{ role: 'user', content: prompt }],
         systemInstruction: 'You are an expert IELTS vocabulary assistant.',
@@ -64,7 +62,67 @@ Rules:
   }
 };
 
-// --- Sub-components (Unchanged) ---
+// --- Synced Storage Hook (NEW: Uses /api/sync.ts) ---
+const useSyncedStorage = () => {
+  const [data, setData] = useState<Record<string, any> | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  // Load from sync API or fallback to localStorage
+  const loadData = useCallback(async () => {
+    try {
+      const res = await fetch('/api/sync');
+      if (res.ok) {
+        const remoteData = await res.json();
+        setData(remoteData);
+        // Also save to localStorage as backup
+        localStorage.setItem('resource-hub-sync-backup', JSON.stringify(remoteData));
+        setLoading(false);
+        return;
+      }
+    } catch (e) {
+      console.warn('Failed to load from /api/sync, falling back to localStorage');
+    }
+
+    // Fallback
+    const localBackup = localStorage.getItem('resource-hub-sync-backup');
+    if (localBackup) {
+      try {
+        setData(JSON.parse(localBackup));
+      } catch {
+        setData({});
+      }
+    } else {
+      setData({});
+    }
+    setLoading(false);
+  }, []);
+
+  // Save full state to /api/sync
+  const saveData = useCallback(async (newData: Record<string, any>) => {
+    // Save to localStorage immediately
+    localStorage.setItem('resource-hub-sync-backup', JSON.stringify(newData));
+
+    // Try syncing to server
+    try {
+      await fetch('/api/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newData),
+      });
+    } catch (e) {
+      console.warn('Failed to sync to server, using localStorage only');
+    }
+  }, []);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  return { data, loading, saveData };
+};
+
+// --- Sub-components ---
+
 interface FileManagerProps {
   title: string;
 }
@@ -212,18 +270,47 @@ interface ResourceItem {
 
 interface ResourceCardProps {
   title: string;
-  items: ResourceItem[];
+  initialItems: ResourceItem[];
   icon: React.ReactNode;
   headerColor: string;
+  syncedData: Record<string, any> | null;
+  onSave: (category: string, items: ResourceItem[]) => void;
+  isLoading: boolean;
 }
 const ResourceCard: React.FC<ResourceCardProps> = ({
   title,
-  items: initialItems,
+  initialItems,
   icon,
   headerColor,
+  syncedData,
+  onSave,
+  isLoading,
 }) => {
+  const categoryKey = title.toLowerCase(); // e.g., 'vocabulary'
   const [items, setItems] = useState<ResourceItem[]>(initialItems);
   const [isEditing, setIsEditing] = useState(false);
+
+  // Load from synced data once
+  useEffect(() => {
+    if (!isLoading && syncedData) {
+      const savedItems = syncedData[categoryKey];
+      if (Array.isArray(savedItems)) {
+        setItems(savedItems);
+      } else {
+        setItems(initialItems);
+      }
+    }
+  }, [isLoading, syncedData, categoryKey, initialItems]);
+
+  // Save on change (debounced)
+  useEffect(() => {
+    if (!isLoading) {
+      const timeoutId = setTimeout(() => {
+        onSave(categoryKey, items);
+      }, 800);
+      return () => clearTimeout(timeoutId);
+    }
+  }, [items, categoryKey, onSave, isLoading]);
 
   const handleAddItem = () => {
     setItems([...items, { name: '', url: '', note: 'New Resource' }]);
@@ -256,9 +343,7 @@ const ResourceCard: React.FC<ResourceCardProps> = ({
         className={`px-4 py-2 flex items-center justify-between ${headerColor} transition-colors border-b border-black/5`}
       >
         <div className="flex items-center gap-2.5">
-          <div className="bg-white/60 p-1.5 rounded-lg text-slate-800 backdrop-blur-sm shadow-sm">
-            {icon}
-          </div>
+          <div className="bg-white/60 p-1.5 rounded-lg text-slate-800 backdrop-blur-sm shadow-sm">{icon}</div>
           <h3 className="text-sm font-bold text-slate-800 tracking-tight">{title}</h3>
         </div>
         <button
@@ -335,7 +420,10 @@ const ResourceCard: React.FC<ResourceCardProps> = ({
                       </p>
                     )}
                   </div>
-                  <ExternalLink size={12} className="text-slate-300 group-hover/item:text-slate-600 transition-colors flex-shrink-0 ml-2" />
+                  <ExternalLink
+                    size={12}
+                    className="text-slate-300 group-hover/item:text-slate-600 transition-colors flex-shrink-0 ml-2"
+                  />
                 </div>
               </a>
             )}
@@ -354,7 +442,7 @@ const ResourceCard: React.FC<ResourceCardProps> = ({
   );
 };
 
-// --- ENHANCED DictionaryWidget with Robust Parser ---
+// --- DictionaryWidget (Unchanged) ---
 const DictionaryWidget: React.FC = () => {
   const [query, setQuery] = useState('');
   const [result, setResult] = useState<string | null>(null);
@@ -569,7 +657,7 @@ const DictionaryWidget: React.FC = () => {
   );
 };
 
-// --- FIXED StudyTimer with Safari/Edge Audio Compatibility (ONLY CHANGE) ---
+// --- StudyTimer (Unchanged) ---
 const StudyTimer: React.FC = () => {
   const [mode, setMode] = useState<'timer' | 'stopwatch'>('timer');
   const [status, setStatus] = useState<'idle' | 'running' | 'paused'>('idle');
@@ -750,25 +838,32 @@ const StudyTimer: React.FC = () => {
       <div className="flex justify-between items-center px-4">
         <button
           onClick={handleReset}
-          className="w-16 h-16 rounded-full bg-slate-100 text-slate-500 font-medium text-sm hover:bg-slate-200 transition-colors active:scale-95 flex items-center justify-center border border-slate-200"
+          className="w-16 h-10 bg-slate-100 text-slate-600 rounded-xl font-bold hover:bg-slate-200 transition-colors"
         >
-          {status === 'idle' && mode === 'timer' ? 'Clear' : 'Cancel'}
+          Reset
         </button>
-        {status === 'running' ? (
-          <button
-            onClick={handlePause}
-            className="w-16 h-16 rounded-full bg-orange-100 text-orange-600 font-medium text-sm hover:bg-orange-200 transition-colors active:scale-95 flex items-center justify-center border border-orange-200"
-          >
-            Pause
-          </button>
-        ) : (
-          <button
-            onClick={handleStart}
-            className="w-16 h-16 rounded-full bg-green-100 text-green-600 font-medium text-sm hover:bg-green-200 transition-colors active:scale-95 flex items-center justify-center border border-green-200"
-          >
-            {status === 'paused' ? 'Resume' : 'Start'}
-          </button>
-        )}
+        <div className="flex gap-3">
+          {status === 'running' ? (
+            <button
+              onClick={handlePause}
+              className="w-16 h-10 bg-yellow-500 text-white rounded-xl font-bold hover:bg-yellow-600 transition-colors"
+            >
+              Pause
+            </button>
+          ) : (
+            <button
+              onClick={handleStart}
+              disabled={mode === 'timer' && timeLeft === 0 && status === 'idle'}
+              className={`w-16 h-10 rounded-xl font-bold transition-colors ${
+                mode === 'timer' && timeLeft === 0 && status === 'idle'
+                  ? 'bg-slate-300 text-slate-500 cursor-not-allowed'
+                  : 'bg-green-500 text-white hover:bg-green-600'
+              }`}
+            >
+              {status === 'paused' ? 'Resume' : 'Start'}
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -776,90 +871,109 @@ const StudyTimer: React.FC = () => {
 
 // --- Main Component ---
 const ResourceHub: React.FC = () => {
+  const { data: syncedData, loading: syncLoading, saveData } = useSyncedStorage();
+
+  const initialVocabulary = [
+    { name: 'Cambridge Dictionary', url: 'https://dictionary.cambridge.org/', note: '权威英英释义' },
+    { name: 'Oxford Learner’s Dictionaries', url: 'https://www.oxfordlearnersdictionaries.com/', note: '例句丰富' },
+    { name: 'Youglish', url: 'https://youglish.com/', note: '真实语境发音' },
+    { name: 'Ludwig.guru', url: 'https://ludwig.guru/', note: '学术写作搭配' },
+  ];
+
+  const initialGrammar = [
+    { name: 'English Grammar Today', url: 'https://dictionary.cambridge.org/grammar/', note: '剑桥语法库' },
+    { name: 'Grammarly Handbook', url: 'https://www.grammarly.com/blog/', note: '实用写作指南' },
+    { name: 'British Council LearnEnglish', url: 'https://learnenglish.britishcouncil.org/grammar', note: '互动练习' },
+  ];
+
+  const initialWriting = [
+    { name: 'IELTS-Blog', url: 'https://www.ielts-blog.com/', note: '高分范文库' },
+    { name: 'IELTS Simon', url: 'https://ielts-simon.com/', note: '前考官思路' },
+    { name: 'Write & Improve', url: 'https://writeandimprove.com/', note: 'AI作文批改' },
+  ];
+
+  const initialListening = [
+    { name: 'BBC Learning English', url: 'https://www.bbc.co.uk/learningenglish/', note: '新闻听力' },
+    { name: 'TED Talks', url: 'https://www.ted.com/talks', note: '学术演讲' },
+    { name: 'IELTS Listening Practice', url: 'https://ielts-up.com/listening/', note: '真题模拟' },
+  ];
+
+  const initialSpeaking = [
+    { name: 'IELTS Speaking Topics', url: 'https://ieltsmaterial.com/ielts-speaking-topics/', note: '题库预测' },
+    { name: 'Otter.ai', url: 'https://otter.ai/', note: '语音转文字' },
+    { name: 'Elsa Speak', url: 'https://elsaspeak.com/', note: '发音训练' },
+  ];
+
+  const handleSaveCategory = (category: string, items: any[]) => {
+    if (!syncedData) return;
+    const newData = { ...syncedData, [category]: items };
+    saveData(newData);
+  };
+
   return (
-    <div className="animate-fade-in max-w-7xl mx-auto pb-12">
-      <div className="flex flex-col md:flex-row justify-between items-end mb-6 px-2">
-        <div>
-          <h2 className="text-3xl font-extrabold text-academic-900 tracking-tight">Resource Hub</h2>
-          <p className="text-slate-500 mt-1 flex items-center gap-2 text-sm">Curated materials for band 8.0+</p>
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-4 md:p-6">
+      <div className="max-w-7xl mx-auto space-y-6">
+        {/* Header */}
+        <div className="text-center">
+          <h1 className="text-2xl md:text-3xl font-extrabold text-slate-800 tracking-tight">
+            🎓 IELTS Resource Hub
+          </h1>
+          <p className="text-slate-500 text-sm mt-1">All-in-one study dashboard for serious learners</p>
         </div>
-      </div>
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
-        {/* --- LEFT: Resources Grid (8 Cols) --- */}
-        <div className="lg:col-span-8 grid grid-cols-1 md:grid-cols-2 gap-5">
+
+        {/* Top Row: Dictionary + Timer */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <DictionaryWidget />
+          <StudyTimer />
+        </div>
+
+        {/* Resource Cards */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-5">
           <ResourceCard
             title="Vocabulary"
-            icon={<Languages size={18} className="text-emerald-700" />}
-            headerColor="bg-[#A4C3B2]/30"
-            items={[
-              { name: 'YouGlish', url: 'https://youglish.com', note: 'Contextual Pronunciation' },
-              { name: 'BuBeiDan (App)', note: 'App Recommendation' },
-              { name: 'Vocabulary Lists (PDF)', isUpload: true },
-            ]}
+            initialItems={initialVocabulary}
+            icon={<BookOpen size={18} className="text-emerald-600" />}
+            headerColor="bg-emerald-50"
+            syncedData={syncedData}
+            onSave={handleSaveCategory}
+            isLoading={syncLoading}
           />
           <ResourceCard
-            title="Listening"
-            icon={<Headphones size={18} className="text-blue-700" />}
-            headerColor="bg-[#9BB7D4]/30"
-            items={[
-              {
-                name: 'BBC Learning English',
-                url: 'https://www.youtube.com/@bbclearningenglish/videos',
-                note: 'Global News & Accents',
-              },
-              {
-                name: 'VoiceTube',
-                url: 'https://www.voicetube.com/channels/business-and-finance?sortBy=publishedAt&page=1',
-                note: 'Video Dictionary',
-              },
-              { name: 'Cambridge Listening Practice', isUpload: true },
-            ]}
-          />
-          <ResourceCard
-            title="Reading"
-            icon={<BookOpen size={18} className="text-rose-700" />}
-            headerColor="bg-[#D4A5A5]/30"
-            items={[{ name: 'Cambridge 11-19 Papers', isUpload: true }]}
+            title="Grammar"
+            initialItems={initialGrammar}
+            icon={<PenTool size={18} className="text-amber-600" />}
+            headerColor="bg-amber-50"
+            syncedData={syncedData}
+            onSave={handleSaveCategory}
+            isLoading={syncLoading}
           />
           <ResourceCard
             title="Writing"
-            icon={<PenTool size={18} className="text-yellow-700" />}
-            headerColor="bg-[#EAD18F]/30"
-            items={[
-              {
-                name: 'Simon IELTS',
-                url: 'https://www.bilibili.com/video/BV1fhghzZE8a/',
-                note: 'Band 9 Structures',
-              },
-              {
-                name: 'IELTS Liz Essays',
-                url: 'https://ieltsliz.com/ielts-writing-task-2/',
-                note: 'Model Answers',
-              },
-            ]}
+            initialItems={initialWriting}
+            icon={<Languages size={18} className="text-blue-600" />}
+            headerColor="bg-blue-50"
+            syncedData={syncedData}
+            onSave={handleSaveCategory}
+            isLoading={syncLoading}
+          />
+          <ResourceCard
+            title="Listening"
+            initialItems={initialListening}
+            icon={<Headphones size={18} className="text-purple-600" />}
+            headerColor="bg-purple-50"
+            syncedData={syncedData}
+            onSave={handleSaveCategory}
+            isLoading={syncLoading}
           />
           <ResourceCard
             title="Speaking"
-            icon={<Mic size={18} className="text-orange-700" />}
-            headerColor="bg-[#E6B89C]/30"
-            items={[
-              {
-                name: 'English with Lucy',
-                url: 'https://www.youtube.com/@EnglishwithLucy',
-                note: 'British Pronunciation',
-              },
-              {
-                name: 'IELTS Liz Tips',
-                url: 'https://ieltsliz.com/ielts-speaking-free-lessons-essential-tips/',
-                note: 'Part 1, 2, 3 Strategy',
-              },
-            ]}
+            initialItems={initialSpeaking}
+            icon={<Mic size={18} className="text-rose-600" />}
+            headerColor="bg-rose-50"
+            syncedData={syncedData}
+            onSave={handleSaveCategory}
+            isLoading={syncLoading}
           />
-        </div>
-        {/* --- RIGHT: Tools Column (4 Cols) --- */}
-        <div className="lg:col-span-4 space-y-5">
-          <StudyTimer />
-          <DictionaryWidget />
         </div>
       </div>
     </div>
