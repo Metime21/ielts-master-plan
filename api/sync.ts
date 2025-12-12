@@ -15,8 +15,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   try {
     if (req.method === 'POST') {
-      const body = req.body; // ✅ Vercel 自动解析 JSON
-      await kv.set(ITEM_KEY, body, { ex: 60 * 60 * 24 * 30 }); // 30 days in seconds
+      const body = req.body;
+      await kv.set(ITEM_KEY, body); // 永久保存，无过期时间
       return res.status(200).json({ ok: true });
     } else {
       const data = await kv.get(ITEM_KEY);
