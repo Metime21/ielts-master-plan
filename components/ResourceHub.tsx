@@ -828,32 +828,20 @@ const ResourceHub: React.FC = () => {
 useEffect(() => {
   const loadSyncData = async () => {
     try {
-      const res = await fetch('/api/sync');
-      if (!res.ok) throw new Error('Network response not ok');
-      
-      const data = await res.json();
-      const hub = data?.resourceHub;
+    const res = await fetch('/api/sync');
+if (!res.ok) throw new Error('Network response not ok');
 
-      // ✅ 严格检查：只有当 resourceHub 存在且所有字段都是数组时，才使用
-      if (
-        hub &&
-        Array.isArray(hub.vocabulary) &&
-        Array.isArray(hub.listening) &&
-        Array.isArray(hub.reading) &&
-        Array.isArray(hub.writing) &&
-        Array.isArray(hub.speaking)
-      ) {
-        setResources(hub);
-        return; // 成功加载，直接退出
-      }
+const data = await res.json();
+const hub = data?.resourceHub;
 
-      // 可选：如果部分字段存在，可以 merge，但为安全起见，这里只用默认值
-      console.warn('ResourceHub data incomplete, using defaults');
-    } catch (e) {
-      console.error('Failed to load ResourceHub:', e);
-    }
-    // 只有在出错或数据无效时，才回退到默认值
-    setResources(defaultResources);
+// ✅ 宽松合并：每个分类独立判断，避免因单个字段缺失导致全量回退
+setResources({
+  vocabulary: Array.isArray(hub?.vocabulary) ? hub.vocabulary : defaultResources.vocabulary,
+  listening: Array.isArray(hub?.listening) ? hub.listening : defaultResources.listening,
+  reading: Array.isArray(hub?.reading) ? hub.reading : defaultResources.reading,
+  writing: Array.isArray(hub?.writing) ? hub.writing : defaultResources.writing,
+  speaking: Array.isArray(hub?.speaking) ? hub.speaking : defaultResources.speaking,
+});
   };
 
   loadSyncData();
