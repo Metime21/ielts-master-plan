@@ -865,11 +865,21 @@ useEffect(() => {
   };
 
   const handleSaveSection = (section: keyof typeof resources, items: ResourceItem[]) => {
-    const updated = { ...resources, [section]: items };
-    setResources(updated);
-    saveAllResources(updated);
+  const updated = { ...resources, [section]: items };
+  setResources(updated);
+
+  // 构造符合 ResourceHubData 接口的完整对象，确保后端能正确识别
+  const payloadForSync = {
+    vocabulary: updated.vocabulary,
+    listening: updated.listening,
+    reading: updated.reading,
+    writing: updated.writing,
+    speaking: updated.speaking,
+    seriesList: [], // 显式提供空数组，避免后端因字段缺失而拒绝
   };
 
+  saveAllResources(payloadForSync);
+};
   return (
     <div className="animate-fade-in max-w-7xl mx-auto pb-12">
       <div className="flex flex-col md:flex-row justify-between items-end mb-6 px-2">
