@@ -88,6 +88,7 @@ const ChillZone: React.FC = () => {
   const startEditing = (series: Series) => {
     setEditingId(series.id);
     setEditForm({ ...series });
+    saveChillZoneData(updatedList);
   };
 
   const saveEditing = (id: string) => {
