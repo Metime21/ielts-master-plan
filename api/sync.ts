@@ -100,10 +100,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   };
 
   // 安全地获取 ChillZone 数据
-  const chillData = await kv.get(CHILL_KEY);
-  const chillZone = (chillData && typeof chillData === 'object' && Array.isArray(chillData.seriesList))
-    ? chillData
-    : { seriesList: [] };
+const chillData = await kv.get(CHILL_KEY);
+const chillZone = (
+  chillData &&
+  typeof chillData === 'object' &&
+  !Array.isArray(chillData) &&
+  'seriesList' in chillData &&
+  Array.isArray(chillData.seriesList)
+) ? chillData : { seriesList: [] };
 
   return res.status(200).json({
     planner,
