@@ -2,12 +2,42 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { kv } from '@vercel/kv';
 
-// Define keys for each module
+// === 数据结构定义 ===
+interface ResourceItem {
+  name: string;
+  url?: string;
+  isUpload?: boolean;
+  note?: string;
+}
+
+interface ResourceHubData {
+  vocabulary: ResourceItem[];
+  listening: ResourceItem[];
+  reading: ResourceItem[];
+  writing: ResourceItem[];
+  speaking: ResourceItem[];
+  seriesList?: string[];
+}
+
+interface PlannerData {
+  [date: string]: {
+    goal?: string;
+    completed?: boolean;
+    notes?: string;
+  };
+}
+
+interface ChillZoneData {
+  seriesList: string[];
+}
+
+// === 常量 ===
 const PLANNER_KEY = 'smartplanner:data';
 const HUB_KEY = 'resourcehub:data';
 const CHILL_KEY = 'chillzone:data';
 
-function isPlainObject(obj: any): obj is Record<string, any> {
+// === 工具函数 ===
+function isPlainObject(obj: unknown): obj is Record<string, unknown> {
   return (
     obj !== null &&
     typeof obj === 'object' &&
@@ -16,6 +46,7 @@ function isPlainObject(obj: any): obj is Record<string, any> {
   );
 }
 
+// === 主处理函数 ===
 export default async function handler(
   req: VercelRequest,
   res: VercelResponse
@@ -23,54 +54,85 @@ export default async function handler(
   try {
     if (req.method === 'POST') {
       const body = req.body;
-      let targetKey: string | null = null;
-      let currentData: any = {};
-      let newData: any = {};
 
-      // Identify the module by payload structure
-      if (isPlainObject(body) && Object.keys(body).some(k => /^\d{4}-\d{2}-\d{2}$/.test(k))) {
-        // SmartPlanner
-        targetKey = PLANNER_KEY;
-        currentData = (await kv.get(targetKey)) || {};
-        newData = { ...currentData, ...body };
-      } else if (
+      // --- SmartPlanner ---
+      if (
         isPlainObject(body) &&
-        ['vocabulary', 'listening', 'reading', 'writing', 'speaking'].every(cat => Array.isArray(body[cat]))
+        Object.keys(body).some((k) => /^\d{4}-\d{2}-\d{2}$/.test(k))
       ) {
-        // ResourceHub —— 更严格：要求所有字段都存在且为数组（可选，原逻辑用 some 也可）
-        targetKey = HUB_KEY;
-        currentData = (await kv.get(targetKey)) || {};
-        newData = { ...currentData };
-        for (const cat of ['vocabulary', 'listening', 'reading', 'writing', 'speaking'] as const) {
+        const currentData: PlannerData =
+          ((await kv.get(PLANNER_KEY)) as PlannerData | null) || {};
+        const newData: PlannerData = { ...currentData, ...body };
+        await kv.set(PLANNER_KEY, newData, { ex: 60 * 60 * 24 * 30 });
+        return res.status(200).json({ ok: true });
+      }
+
+      // --- ResourceHub ---
+      if (
+        isPlainObject(body) &&
+        ['vocabulary', 'listening', 'reading', 'writing', 'speaking'].every(
+          (cat) => Array.isArray(body[cat])
+        )
+      ) {
+        const currentData: ResourceHubData =
+          ((await kv.get(HUB_KEY)) as ResourceHubData | null) || {
+            vocabulary: [],
+            listening: [],
+            reading: [],
+            writing: [],
+            speaking: [],
+            seriesList: [],
+          };
+
+        const newData: ResourceHubData = { ...currentData };
+        for (const cat of [
+          'vocabulary',
+          'listening',
+          'reading',
+          'writing',
+          'speaking',
+        ] as const) {
           if (Array.isArray(body[cat])) {
             newData[cat] = body[cat];
           }
         }
-      } else if (
+
+        await kv.set(HUB_KEY, newData, { ex: 60 * 60 * 24 * 30 });
+        return res.status(200).json({ ok: true });
+      }
+
+      // --- ChillZone ---
+      if (
         isPlainObject(body) &&
         body.chillZone &&
         isPlainObject(body.chillZone) &&
         Array.isArray(body.chillZone.seriesList)
       ) {
-        // ChillZone
-        targetKey = CHILL_KEY;
-        currentData = (await kv.get(targetKey)) || {};
-        newData = { ...currentData, seriesList: body.chillZone.seriesList };
-      } else {
-        console.warn('Unrecognized sync payload:', body);
-        return res.status(400).json({ error: 'Invalid data format' });
+        const currentData: ChillZoneData =
+          ((await kv.get(CHILL_KEY)) as ChillZoneData | null) || {
+            seriesList: [],
+          };
+        const newData: ChillZoneData = {
+          ...currentData,
+          seriesList: body.chillZone.seriesList,
+        };
+        await kv.set(CHILL_KEY, newData, { ex: 60 * 60 * 24 * 30 });
+        return res.status(200).json({ ok: true });
       }
 
-      await kv.set(targetKey, newData, { ex: 60 * 60 * 24 * 30 });
-      return res.status(200).json({ ok: true });
+      // --- 无法识别的 payload ---
+      console.warn('Unrecognized sync payload:', body);
+      return res.status(400).json({ error: 'Invalid data format' });
     }
 
     if (req.method === 'GET') {
-      const plannerData = await kv.get(PLANNER_KEY);
-      const planner = (plannerData && typeof plannerData === 'object') ? plannerData : {};
+      // Fetch planner
+      const plannerData = (await kv.get(PLANNER_KEY)) as PlannerData | null;
+      const planner: PlannerData = plannerData && typeof plannerData === 'object' ? plannerData : {};
 
-      const hubData = await kv.get(HUB_KEY);
-      const resourceHub = (
+      // Fetch resourceHub
+      const hubData = (await kv.get(HUB_KEY)) as ResourceHubData | null;
+      const resourceHub: ResourceHubData | null =
         hubData &&
         typeof hubData === 'object' &&
         Array.isArray(hubData.vocabulary) &&
@@ -78,20 +140,22 @@ export default async function handler(
         Array.isArray(hubData.reading) &&
         Array.isArray(hubData.writing) &&
         Array.isArray(hubData.speaking)
-      ) ? hubData : null;
+          ? hubData
+          : null;
 
-      const chillData = await kv.get(CHILL_KEY);
-      const chillZone = (
+      // Fetch chillZone
+      const chillData = (await kv.get(CHILL_KEY)) as ChillZoneData | null;
+      const chillZone: ChillZoneData | null =
         chillData &&
         typeof chillData === 'object' &&
         Array.isArray(chillData.seriesList)
-      ) ? chillData : null;
+          ? chillData
+          : null;
 
-      // ✅ 返回字段名与前端完全一致
       return res.status(200).json({
         planner,
-        resourceHub,   // ← 关键：字段名 resourceHub
-        chillZone,     // ← 关键：字段名 chillZone
+        resourceHub,
+        chillZone,
       });
     }
 
