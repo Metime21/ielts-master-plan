@@ -86,7 +86,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // Handle Planner update: keys are dates like "2025-12-13"
     if (Object.keys(body).some(k => /^\d{4}-\d{2}-\d{2}$/.test(k))) {
       const current = ((await kv.get(PLANNER_KEY)) as PlannerData | null) || {};
-      await kv.set(PLANNER_KEY, { ...current, ...body }, { ex: 2592000 });
+      await kv.set(PLANNER_KEY, { ...current, ...body });
       return res.json({ ok: true });
     }
 
@@ -119,7 +119,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
 
       // ✅ Write to HUB_KEY — this was the critical bug
-      await kv.set(HUB_KEY, update, { ex: 2592000 });
+      await kv.set(HUB_KEY, update);
       return res.json({ ok: true });
     }
 
@@ -129,7 +129,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       Object.keys(body).length === 1 &&
       Array.isArray(body.seriesList)
     ) {
-      await kv.set(CHILL_KEY, { seriesList: body.seriesList }, { ex: 2592000 });
+      await kv.set(CHILL_KEY, { seriesList: body.seriesList });
       return res.json({ ok: true });
     }
 
