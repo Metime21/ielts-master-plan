@@ -138,3 +138,4 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     console.error('Sync API error:', e);
     return res.status(500).json({ error: 'Internal server error' });
   }
+}
