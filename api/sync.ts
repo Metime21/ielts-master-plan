@@ -84,18 +84,33 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(200).json({ ok: true });
     }
 
-    if (req.method === 'GET') {
-      // Return full state of all modules
-      const plannerData = await kv.get(PLANNER_KEY) || {};
-      const hubData = await kv.get(HUB_KEY) || {};
-      const chillData = await kv.get(CHILL_KEY) || {};
+   if (req.method === 'GET') {
+  // 安全地获取 Planner 数据
+  const plannerData = await kv.get(PLANNER_KEY);
+  const planner = (plannerData && typeof plannerData === 'object') ? plannerData : {};
 
-      return res.status(200).json({
-        planner: plannerData,
-        resourceHub: hubData,
-        chillZone: chillData
-      });
-    }
+  // 安全地获取 Resource Hub 数据
+  const hubData = await kv.get(HUB_KEY);
+  const resourceHub = (hubData && typeof hubData === 'object') ? hubData : {
+    vocabulary: [],
+    listening: [],
+    reading: [],
+    writing: [],
+    speaking: []
+  };
+
+  // 安全地获取 ChillZone 数据
+  const chillData = await kv.get(CHILL_KEY);
+  const chillZone = (chillData && typeof chillData === 'object' && Array.isArray(chillData.seriesList))
+    ? chillData
+    : { seriesList: [] };
+
+  return res.status(200).json({
+    planner,
+    resourceHub,
+    chillZone
+  });
+}
 
     return res.status(405).json({ error: 'Method not allowed' });
   } catch (error) {
