@@ -226,7 +226,10 @@ const ResourceCard: React.FC<ResourceCardProps> = ({
 }) => {
   const [items, setItems] = useState<ResourceItem[]>(initialItems);
   const [isEditing, setIsEditing] = useState(false);
-
+// ✅ 核心修复：监听数据变化，强制更新显示
+  useEffect(() => {
+    setItems(initialItems);
+  }, [initialItems]);
   const handleAddItem = () => {
     const newItems = [...items, { name: '', url: '', note: 'New Resource' }];
     setItems(newItems);
@@ -865,21 +868,28 @@ useEffect(() => {
   };
 
   const handleSaveSection = (section: keyof typeof resources, items: ResourceItem[]) => {
-  setResources(prev => {
-    const updated = { ...prev, [section]: items };
-    // 在状态更新回调中构造 payload，确保数据是最新的
+    // 1. 先在内存中计算出完整的新数据对象
+    // ...resources 会把原有的 seriesList (ChillZone) 也解构进去，不会丢
+    const updatedResources = { ...resources, [section]: items };
+    
+    // 2. 更新前端显示
+    setResources(updatedResources);
+    
+    // 3. 发送给后台保存
+    // 关键点：直接使用 updatedResources，而不是等待 state 更新
     const payloadForSync = {
-      vocabulary: updated.vocabulary,
-      listening: updated.listening,
-      reading: updated.reading,
-      writing: updated.writing,
-      speaking: updated.speaking,
-      seriesList: [],
+      vocabulary: updatedResources.vocabulary,
+      listening: updatedResources.listening,
+      reading: updatedResources.reading,
+      writing: updatedResources.writing,
+      speaking: updatedResources.speaking,
+      // 修正：这里取 updatedResources 中的 seriesList，保留原有 ChillZone 数据
+      seriesList: updatedResources.seriesList || [], 
     };
+
     saveAllResources(payloadForSync);
-    return updated;
-  });
-};
+  };
+ 
   return (
     <div className="animate-fade-in max-w-7xl mx-auto pb-12">
       <div className="flex flex-col md:flex-row justify-between items-end mb-6 px-2">
