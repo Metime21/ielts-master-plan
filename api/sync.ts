@@ -15,19 +15,28 @@ interface ResourceHubData {
   reading: ResourceItem[];
   writing: ResourceItem[];
   speaking: ResourceItem[];
-  seriesList?: string[];
+  seriesList?: any[]; // for compatibility
 }
 
 interface PlannerData {
   [date: string]: {
-    goal?: string;
-    completed?: boolean;
-    notes?: string;
+    tasks?: Array<{
+      id: string;
+      timeRange: string;
+      subject: string;
+      content: string;
+      progress: number;
+    }>;
+    review?: {
+      readingListening?: string;
+      speakingWriting?: string;
+      mood?: string;
+    };
   };
 }
 
 interface ChillZoneData {
-  seriesList: any[]; // 兼容现有结构
+  seriesList: any[];
 }
 
 const PLANNER_KEY = 'planner:data';
@@ -40,23 +49,20 @@ function isPlainObject(obj: any): obj is Record<string, unknown> {
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
-    if (req.method !== 'GET' && req.method !== 'POST') {
-      return res.status(405).json({ error: 'Method not allowed' });
-    }
-
     if (req.method === 'GET') {
-      const planner = (await kv.get(PLANNER_KEY)) as PlannerData | null;
-      const hub = (await kv.get(HUB_KEY)) as ResourceHubData | null;
-      const chill = (await kv.get(CHILL_KEY)) as ChillZoneData | null;
+      const planner = ((await kv.get(PLANNER_KEY)) as PlannerData | null) || {};
+      const hub = ((await kv.get(HUB_KEY)) as ResourceHubData | null) || null;
+      const chill = ((await kv.get(CHILL_KEY)) as ChillZoneData | null) || null;
 
-      const validHub = hub &&
+      const validHub =
+        hub &&
         Array.isArray(hub.vocabulary) &&
         Array.isArray(hub.listening) &&
         Array.isArray(hub.reading) &&
         Array.isArray(hub.writing) &&
         Array.isArray(hub.speaking)
-        ? hub
-        : null;
+          ? hub
+          : null;
 
       const validChill = chill && Array.isArray(chill.seriesList) ? chill : null;
 
@@ -67,7 +73,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       });
     }
 
-    // POST logic
+    if (req.method !== 'POST') {
+      return res.status(405).json({ error: 'Method not allowed' });
+    }
+
     const body = req.body;
 
     if (!isPlainObject(body)) {
@@ -78,12 +87,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (Object.keys(body).some(k => /^\d{4}-\d{2}-\d{2}$/.test(k))) {
       const current = ((await kv.get(PLANNER_KEY)) as PlannerData | null) || {};
       await kv.set(PLANNER_KEY, { ...current, ...body }, { ex: 2592000 });
-      return res.json({ ok: true });
-    }
-
-    // Handle ChillZone update
-    if (Array.isArray(body.seriesList)) {
-      await kv.set(CHILL_KEY, { seriesList: body.seriesList }, { ex: 2592000 });
       return res.json({ ok: true });
     }
 
@@ -103,29 +106,35 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
       const update = { ...current };
 
-      // Update only the categories present in the request
       for (const cat of resourceCategories) {
         if (Array.isArray(body[cat])) {
           update[cat] = body[cat];
         }
       }
 
-      // Handle optional seriesList
+      // Also update seriesList if provided (e.g., from frontend)
       if (Array.isArray(body.seriesList)) {
         update.seriesList = body.seriesList;
-      } else if (update.seriesList === undefined) {
-        update.seriesList = [];
       }
 
       await kv.set(HUB_KEY, update, { ex: 2592000 });
       return res.json({ ok: true });
     }
 
-    // If none of the above matched
-    return res.status(400).json({ error: 'Unrecognized sync payload' });
+    // Handle ChillZone update: ONLY if body is exactly { seriesList: [...] }
+    if (
+      body &&
+      Object.keys(body).length === 1 &&
+      Array.isArray(body.seriesList)
+    ) {
+      await kv.set(CHILL_KEY, { seriesList: body.seriesList }, { ex: 2592000 });
+      return res.json({ ok: true });
+    }
+
+    return res.status(400).json({ error: 'Invalid sync payload format' });
 
   } catch (e) {
-    console.error('Sync error:', e);
-    return res.status(500).json({ error: 'Server error' });
+    console.error('Sync API error:', e);
+    return res.status(500).json({ error: 'Internal server error' });
   }
 }
