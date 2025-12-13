@@ -5,7 +5,7 @@ import { kv } from '@vercel/kv';
 // Define keys for each module
 const PLANNER_KEY = 'smartplanner:data';
 const HUB_KEY = 'resourcehub:data';
-const CHILL_KEY = 'chillzone:data'; // ← 已添加
+const CHILL_KEY = 'chillzone:data';
 
 function isPlainObject(obj: any): obj is Record<string, any> {
   return (
@@ -23,7 +23,6 @@ export default async function handler(
   try {
     if (req.method === 'POST') {
       const body = req.body;
-
       let targetKey: string | null = null;
       let currentData: any = {};
       let newData: any = {};
@@ -32,31 +31,32 @@ export default async function handler(
       if (isPlainObject(body) && Object.keys(body).some(k => /^\d{4}-\d{2}-\d{2}$/.test(k))) {
         // SmartPlanner
         targetKey = PLANNER_KEY;
-        currentData = await kv.get(targetKey) || {};
+        currentData = (await kv.get(targetKey)) || {};
         newData = { ...currentData, ...body };
-      } 
-      else if (isPlainObject(body) && 
-        ['vocabulary', 'listening', 'reading', 'writing', 'speaking'].some(cat => Array.isArray(body[cat]))) {
-        // ResourceHub
+      } else if (
+        isPlainObject(body) &&
+        ['vocabulary', 'listening', 'reading', 'writing', 'speaking'].every(cat => Array.isArray(body[cat]))
+      ) {
+        // ResourceHub —— 更严格：要求所有字段都存在且为数组（可选，原逻辑用 some 也可）
         targetKey = HUB_KEY;
-        currentData = await kv.get(targetKey) || {};
+        currentData = (await kv.get(targetKey)) || {};
         newData = { ...currentData };
         for (const cat of ['vocabulary', 'listening', 'reading', 'writing', 'speaking'] as const) {
           if (Array.isArray(body[cat])) {
             newData[cat] = body[cat];
           }
         }
-      }
-      else if (isPlainObject(body) && 
-        body.chillZone && 
-        isPlainObject(body.chillZone) && 
-        Array.isArray(body.chillZone.seriesList)) {
+      } else if (
+        isPlainObject(body) &&
+        body.chillZone &&
+        isPlainObject(body.chillZone) &&
+        Array.isArray(body.chillZone.seriesList)
+      ) {
         // ChillZone
         targetKey = CHILL_KEY;
-        currentData = await kv.get(targetKey) || {};
+        currentData = (await kv.get(targetKey)) || {};
         newData = { ...currentData, seriesList: body.chillZone.seriesList };
-      }
-      else {
+      } else {
         console.warn('Unrecognized sync payload:', body);
         return res.status(400).json({ error: 'Invalid data format' });
       }
@@ -70,7 +70,7 @@ export default async function handler(
       const planner = (plannerData && typeof plannerData === 'object') ? plannerData : {};
 
       const hubData = await kv.get(HUB_KEY);
-      const hub = (
+      const resourceHub = (
         hubData &&
         typeof hubData === 'object' &&
         Array.isArray(hubData.vocabulary) &&
@@ -81,17 +81,17 @@ export default async function handler(
       ) ? hubData : null;
 
       const chillData = await kv.get(CHILL_KEY);
-      const chill = (
+      const chillZone = (
         chillData &&
         typeof chillData === 'object' &&
         Array.isArray(chillData.seriesList)
       ) ? chillData : null;
 
-      // ✅ 修复：使用前端期望的字段名
-      return res.status(200).json({ 
-        planner, 
-        resourceHub: hub,   // ← 关键修复
-        chillZone: chill    // ← 关键修复
+      // ✅ 返回字段名与前端完全一致
+      return res.status(200).json({
+        planner,
+        resourceHub,   // ← 关键：字段名 resourceHub
+        chillZone,     // ← 关键：字段名 chillZone
       });
     }
 
