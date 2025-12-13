@@ -876,47 +876,79 @@ useEffect(() => {
     }
   };
 
-  const handleSaveSection = (section: keyof typeof resources, items: ResourceItem[]) => {
-    // 1. 先在内存中计算出完整的新数据对象
-    // ...resources 会把原有的 seriesList (ChillZone) 也解构进去，不会丢
-    const updatedResources = { ...resources, [section]: items };
-    
-    // 2. 更新前端显示
-    setResources(updatedResources);
-    
-    // 3. 发送给后台保存
-    // 关键点：直接使用 updatedResources，而不是等待 state 更新
-    const payloadForSync = {
-      vocabulary: updatedResources.vocabulary,
-      listening: updatedResources.listening,
-      reading: updatedResources.reading,
-      writing: updatedResources.writing,
-      speaking: updatedResources.speaking,
-      // 修正：这里取 updatedResources 中的 seriesList，保留原有 Chill Zone 数据
-      seriesList: updatedResources.seriesList || [],
-    };
-    saveAllResources(payloadForSync); // <--- 确保这一行没有漏掉！
-  };
-// 【修改点 3a】：新增 Chill Zone 保存函数 (修复 Scope 错误)
-  const handleSaveChillZone = (items: any[]) => {
-    // 1. 计算出新的完整 resources 对象 (包含最新的 Chill Zone 数据)
-    const updatedResources = { ...resources, seriesList: items };
+  const handleSaveSection = async (
+  category: keyof ResourceHubData,
+  items: any[],
+) => {
+  // 确保 category 参数的类型是 ResourceHubData 的键
+  if (isSaving) return;
 
-    // 2. 更新前端显示
-    setResources(updatedResources);
-
-    // 3. 构造 Payload 并发送给后台
-    // 注意：这里必须重新构造 payloadForSync
-    const payloadForSync = {
-      vocabulary: updatedResources.vocabulary,
-      listening: updatedResources.listening,
-      reading: updatedResources.reading,
-      writing: updatedResources.writing,
-      speaking: updatedResources.speaking,
-      seriesList: updatedResources.seriesList || [], // 使用最新的 seriesList
-    };
-    saveAllResources(payloadForSync);
+  setIsSaving(true);
+  
+  // 1. 更新本地状态：将本次修改的数据合并到 resources 中
+  const updatedResources = {
+    ...resources,
+    [category]: items,
   };
+  setResources(updatedResources); 
+
+  // 2. 构造 API Payload：使用展开运算符确保所有字段（包括 seriesList）都被包含
+  const payloadForSync = {
+    ...updatedResources,
+  };
+
+  try {
+    const res = await fetch('/api/sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payloadForSync),
+    });
+
+    if (!res.ok) throw new Error('Failed to save data');
+
+    console.log(`Saved ${category} data successfully.`);
+    setLastSavedTime(new Date());
+  } catch (e) {
+    console.error(`Error saving ${category}:`, e);
+  } finally {
+    setIsSaving(false);
+  }
+};
+
+const handleSaveChillZone = async (seriesList: any[]) => {
+  if (isSaving) return;
+
+  setIsSaving(true);
+
+  // 1. 更新本地状态：将最新的 seriesList 数据合并到 resources 中
+  const updatedResources = {
+    ...resources,
+    seriesList: seriesList, // 接收 ChillZoneCard 传来的最新列表
+  };
+  setResources(updatedResources); // 立即更新本地状态
+
+  // 2. 构造 API Payload：确保包含所有资源类别 (包括 seriesList) 的最新数据
+  const payloadForSync = {
+    ...updatedResources,
+  };
+  
+  try {
+    const res = await fetch('/api/sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payloadForSync),
+    });
+
+    if (!res.ok) throw new Error('Failed to save chill zone data');
+    
+    console.log('Saved Chill Zone data successfully.');
+    setLastSavedTime(new Date());
+  } catch (e) {
+    console.error('Error saving chill zone:', e);
+  } finally {
+    setIsSaving(false);
+  }
+};
  
   return (
     <div className="animate-fade-in max-w-7xl mx-auto pb-12">
