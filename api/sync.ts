@@ -48,93 +48,94 @@ function isPlainObject(obj: any): obj is Record<string, unknown> {
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
- try {
-    // --- 【GET 请求：数据加载逻辑】 ---
+  try {
     if (req.method === 'GET') {
-      
-      // 1. 读取 Resource Hub (包含 Chill Zone) 数据
-      const resourceHubData = ((await kv.get(HUB_KEY)) as ResourceHubData | null) || {
-          vocabulary: [],
-          listening: [],
-          reading: [],
-          writing: [],
-          speaking: [],
-          seriesList: [], // 确保 seriesList 总是存在
-      };
+      const planner = ((await kv.get(PLANNER_KEY)) as PlannerData | null) || {};
+      const hub = ((await kv.get(HUB_KEY)) as ResourceHubData | null) || null;
+      const chill = ((await kv.get(CHILL_KEY)) as ChillZoneData | null) || null;
 
-      // 2. 读取 Planner 数据
-      const plannerData = ((await kv.get(PLANNER_KEY)) as PlannerData | null) || {};
+      const validHub =
+        hub &&
+        Array.isArray(hub.vocabulary) &&
+        Array.isArray(hub.listening) &&
+        Array.isArray(hub.reading) &&
+        Array.isArray(hub.writing) &&
+        Array.isArray(hub.speaking)
+          ? hub
+          : null;
 
-      // 3. 合并并返回数据
-      const responseData = {
-          ...plannerData, // 日期键值对
-          ...resourceHubData, // 资源和 Chill Zone 数据
-      };
+      const validChill = chill && Array.isArray(chill.seriesList) ? chill : null;
 
-      return res.json(responseData);
+      return res.json({
+        planner,
+        resourceHub: validHub,
+        chillZone: validChill,
+      });
     }
 
-    // --- 【POST 请求：数据保存逻辑】 ---
-    if (req.method === 'POST') {
-      const body = req.body;
-
-      if (!isPlainObject(body)) {
-          return res.status(400).json({ error: 'Body must be object' });
-      }
-
-      // 定义 Resource Hub 的所有类别
-      const resourceCategories = ['vocabulary', 'listening', 'reading', 'writing', 'speaking'] as const;
-      
-      // 1. 处理 PLANNER 数据更新 (以日期为键)
-      const isPlannerUpdate = Object.keys(body).some(k => /^\d{4}-\d{2}-\d{2}$/.test(k));
-      
-      if (isPlannerUpdate) {
-          // Planner 只进行局部更新和写入 PLANNER_KEY
-          const currentPlanner = ((await kv.get(PLANNER_KEY)) as PlannerData | null) || {};
-          await kv.set(PLANNER_KEY, { ...currentPlanner, ...body }, { ex: 2592000 });
-          return res.json({ ok: true });
-      }
-
-      // 2. 处理 RESOURCE HUB / CHILL ZONE 数据更新
-      const isResourceUpdate = 
-          resourceCategories.some(cat => Array.isArray(body[cat])) || 
-          Array.isArray(body.seriesList); 
-
-      if (isResourceUpdate) {
-          // 从 HUB_KEY 读取当前完整数据 (安全读取，避免覆盖)
-          const currentHub = ((await kv.get(HUB_KEY)) as ResourceHubData | null) || {
-              vocabulary: [], listening: [], reading: [], 
-              writing: [], speaking: [], seriesList: [], 
-          };
-
-          const updateHub = { ...currentHub };
-
-          // 用请求体中的数据更新对应的字段 
-          for (const cat of resourceCategories) {
-              if (Array.isArray(body[cat])) {
-                  updateHub[cat] = body[cat]; 
-              }
-          }
-          
-          // 更新 Chill Zone 数据
-          if (Array.isArray(body.seriesList)) {
-              updateHub.seriesList = body.seriesList; 
-          }
-
-          // 将完整对象写入 HUB_KEY
-          await kv.set(HUB_KEY, updateHub, { ex: 2592000 });
-          return res.json({ ok: true });
-      }
-      
-      // 如果请求体中不包含任何 Planner 或 Resource/Chill 数据，返回错误
-      return res.status(400).json({ error: 'No recognizable sync data found in request' });
+    if (req.method !== 'POST') {
+      return res.status(405).json({ error: 'Method not allowed' });
     }
-    
-    // --- 【其他方法】 ---
-    return res.status(405).json({ error: 'Method not allowed' }); 
+
+    const body = req.body;
+
+    if (!isPlainObject(body)) {
+      return res.status(400).json({ error: 'Body must be object' });
+    }
+
+    // Handle Planner update: keys are dates like "2025-12-13"
+    if (Object.keys(body).some(k => /^\d{4}-\d{2}-\d{2}$/.test(k))) {
+      const current = ((await kv.get(PLANNER_KEY)) as PlannerData | null) || {};
+      await kv.set(PLANNER_KEY, { ...current, ...body }, { ex: 2592000 });
+      return res.json({ ok: true });
+    }
+
+    // Handle ResourceHub partial update —— ✅ CORRECTED LOGIC BELOW
+    const resourceCategories = ['vocabulary', 'listening', 'reading', 'writing', 'speaking'] as const;
+    const hasResourceField = resourceCategories.some(cat => Array.isArray(body[cat]));
+
+    if (hasResourceField) {
+      // ✅ Read from HUB_KEY, not PLANNER_KEY
+      const current = ((await kv.get(HUB_KEY)) as ResourceHubData | null) || {
+        vocabulary: [],
+        listening: [],
+        reading: [],
+        writing: [],
+        speaking: [],
+        seriesList: [],
+      };
+
+      const update = { ...current };
+
+      for (const cat of resourceCategories) {
+        if (Array.isArray(body[cat])) {
+          update[cat] = body[cat];
+        }
+      }
+
+      // Also update seriesList if provided
+      if (Array.isArray(body.seriesList)) {
+        update.seriesList = body.seriesList;
+      }
+
+      // ✅ Write to HUB_KEY — this was the critical bug
+      await kv.set(HUB_KEY, update, { ex: 2592000 });
+      return res.json({ ok: true });
+    }
+
+    // Handle ChillZone update: ONLY if body is exactly { seriesList: [...] }
+    if (
+      body &&
+      Object.keys(body).length === 1 &&
+      Array.isArray(body.seriesList)
+    ) {
+      await kv.set(CHILL_KEY, { seriesList: body.seriesList }, { ex: 2592000 });
+      return res.json({ ok: true });
+    }
+
+    return res.status(400).json({ error: 'Invalid sync payload format' });
 
   } catch (e) {
-    // --- 【全局错误处理】 ---
     console.error('Sync API error:', e);
     return res.status(500).json({ error: 'Internal server error' });
   }
