@@ -89,51 +89,48 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       await kv.set(PLANNER_KEY, { ...current, ...body }, { ex: 2592000 });
       return res.json({ ok: true });
     }
-
-    // Handle ResourceHub partial update —— ✅ CORRECTED LOGIC BELOW
+    
+    // --- 【修正后的 Resource Hub 和 Chill Zone 合并保存逻辑】---
+    
     const resourceCategories = ['vocabulary', 'listening', 'reading', 'writing', 'speaking'] as const;
-    const hasResourceField = resourceCategories.some(cat => Array.isArray(body[cat]));
 
-    if (hasResourceField) {
-      // ✅ Read from HUB_KEY, not PLANNER_KEY
-      const current = ((await kv.get(HUB_KEY)) as ResourceHubData | null) || {
-        vocabulary: [],
-        listening: [],
-        reading: [],
-        writing: [],
-        speaking: [],
-        seriesList: [],
-      };
+    // 检查请求体中是否包含任何 Resource Hub 或 Chill Zone 的数据字段
+    const hasRelevantField = 
+        resourceCategories.some(cat => Array.isArray(body[cat])) || 
+        Array.isArray(body.seriesList); 
 
-      const update = { ...current };
+    if (hasRelevantField) {
+        // 1. 从 HUB_KEY 读取当前完整数据 (安全读取，避免覆盖)
+        const current = ((await kv.get(HUB_KEY)) as ResourceHubData | null) || {
+            vocabulary: [],
+            listening: [],
+            reading: [],
+            writing: [],
+            speaking: [],
+            seriesList: [], 
+        };
 
-      for (const cat of resourceCategories) {
-        if (Array.isArray(body[cat])) {
-          update[cat] = body[cat];
+        const update = { ...current };
+
+        // 2. 用请求体中的数据更新对应的字段 
+        for (const cat of resourceCategories) {
+            if (Array.isArray(body[cat])) {
+                update[cat] = body[cat]; 
+            }
         }
-      }
+        
+        // 3. 更新 Chill Zone 数据
+        if (Array.isArray(body.seriesList)) {
+            update.seriesList = body.seriesList; 
+        }
 
-      // Also update seriesList if provided
-      if (Array.isArray(body.seriesList)) {
-        update.seriesList = body.seriesList;
-      }
-
-      // ✅ Write to HUB_KEY — this was the critical bug
-      await kv.set(HUB_KEY, update, { ex: 2592000 });
-      return res.json({ ok: true });
+        // 4. 将包含 Chill Zone 在内的完整对象，只写入 HUB_KEY
+        await kv.set(HUB_KEY, update, { ex: 2592000 });
+        return res.json({ ok: true });
     }
-
-    // Handle ChillZone update: ONLY if body is exactly { seriesList: [...] }
-    if (
-      body &&
-      Object.keys(body).length === 1 &&
-      Array.isArray(body.seriesList)
-    ) {
-      await kv.set(CHILL_KEY, { seriesList: body.seriesList }, { ex: 2592000 });
-      return res.json({ ok: true });
-    }
-
-    return res.status(400).json({ error: 'Invalid sync payload format' });
+    
+    // 如果请求体中不包含任何相关数据，返回错误
+    return res.status(400).json({ error: 'No relevant sync data found in request' });
 
   } catch (e) {
     console.error('Sync API error:', e);
