@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import ChillZoneCard from './chillzone';
 import {
   ExternalLink,
   FileText,
@@ -809,11 +810,9 @@ const ResourceHub: React.FC = () => {
     ],
     speaking: [
       { name: 'English with Lucy', url: 'https://www.youtube.com/@EnglishwithLucy', note: 'British Pronunciation' },
-      { name: 'IELTS Liz Tips', url: 'https://ieltsliz.com/ielts-speaking-free-lessons-essential-tips/', note: 
-    'Part 1, 2, 3 Strategy' }, 
-  ],
-  seriesList: [], 
-};
+      { name: 'IELTS Liz Tips', url: 'https://ieltsliz.com/ielts-speaking-free-lessons-essential-tips/', note: 'Part 1, 2, 3 Strategy' },
+    ],
+  };
 
   const [resources, setResources] = useState<{
     vocabulary: ResourceItem[];
@@ -837,30 +836,23 @@ useEffect(() => {
     try {
       const res = await fetch('/api/sync');
       if (!res.ok) throw new Error('Network response not ok');
-      
-      const data = await res.json(); 
+      const data = await res.json();
+      const hub = data?.resourceHub;
+      const chill = data?.chillZone; // <--- 【修改点 2a】：提取 Chill Zone 数据
 
-      // ⚠️ 确保您在组件顶部定义了 defaultResources 或 DEFAULT_RESOURCES 常量
-      // 否则将下面的 defaultResources 替换为 []
-
-      // 【🔥 关键修正：直接从 data 根对象中读取 Resource Hub 的数据】
       setResources({
-        vocabulary: Array.isArray(data.vocabulary) ? data.vocabulary : defaultResources.vocabulary,
-        listening: Array.isArray(data.listening) ? data.listening : defaultResources.listening,
-        reading: Array.isArray(data.reading) ? data.reading : defaultResources.reading,
-        writing: Array.isArray(data.writing) ? data.writing : defaultResources.writing,
-        speaking: Array.isArray(data.speaking) ? data.speaking : defaultResources.speaking,
-        
-        // 读取 Chill Zone 数据
-        seriesList: Array.isArray(data.seriesList) ? data.seriesList : defaultResources.seriesList || [], 
+        vocabulary: Array.isArray(hub?.vocabulary) ? hub.vocabulary : defaultResources.vocabulary,
+        listening: Array.isArray(hub?.listening) ? hub.listening : defaultResources.listening,
+        reading: Array.isArray(hub?.reading) ? hub.reading : defaultResources.reading,
+        writing: Array.isArray(hub?.writing) ? hub.writing : defaultResources.writing,
+        speaking: Array.isArray(hub?.speaking) ? hub.speaking : defaultResources.speaking,
+        // 【修改点 2b】：从 hub 或 chill 中加载 seriesList
+        seriesList: Array.isArray(hub?.seriesList) 
+          ? hub.seriesList 
+          : Array.isArray(chill?.seriesList) 
+            ? chill.seriesList 
+            : [],
       });
-      
-      // 假设您的 Smart Planner 相关的状态处理函数叫做 setPlannerData
-      // 如果 Smart Planner 依赖这个 API，您还需要在这里提取并设置它的状态
-      // setPlannerData(data); // 示例：如果 Planner 也在这个组件加载
-      
-      // 注意：ResourceHub 组件加载完毕，不需要处理 Planner 的数据。
-      // 因此，我们只设置 setResources。
     } catch (err) {
       console.error('Sync load failed:', err);
     }
@@ -885,40 +877,79 @@ useEffect(() => {
     }
   };
 
-  const handleSaveSection = useCallback(async (category: keyof ResourceHubData, items: ResourceItem[]) => {
-    setResources(prev => {
-        // 1. 更新当前类别的数据
-        const updatedResources = { ...prev, [category]: items };
-        
-        // 2. 构建 Payload，确保 Chill Zone 数据不被丢失
-        const payloadForSync = {
-            vocabulary: updatedResources.vocabulary,
-            listening: updatedResources.listening,
-            reading: updatedResources.reading,
-            writing: updatedResources.writing,
-            speaking: updatedResources.speaking,
-            // 从新状态中取出 seriesList
-            seriesList: updatedResources.seriesList || [], 
-        };
-        
-        // 3. 调用保存函数
-        saveAllResources(payloadForSync);
-        
-        return updatedResources;
+  const handleSaveSection = async (
+  category: keyof ResourceHubData,
+  items: any[],
+) => {
+  // 确保 category 参数的类型是 ResourceHubData 的键
+  if (isSaving) return;
+
+  setIsSaving(true);
+  
+  // 1. 更新本地状态：将本次修改的数据合并到 resources 中
+  const updatedResources = {
+    ...resources,
+    [category]: items,
+  };
+  setResources(updatedResources); 
+
+  // 2. 构造 API Payload：使用展开运算符确保所有字段（包括 seriesList）都被包含
+  const payloadForSync = {
+    ...updatedResources,
+  };
+
+  try {
+    const res = await fetch('/api/sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payloadForSync),
     });
-}, [saveAllResources]);
-const handleSaveChillZone = useCallback(async (newSeriesList: Series[]) => {
-    // 1. 更新本地状态
-    setResources(prev => {
-        // 创建包含所有数据和最新 seriesList 的完整对象
-        const updatedResources = { ...prev, seriesList: newSeriesList };
-        
-        // 2. 将完整的对象发送给 saveAllResources 进行保存
-        saveAllResources(updatedResources); 
-        
-        return updatedResources;
+
+    if (!res.ok) throw new Error('Failed to save data');
+
+    console.log(`Saved ${category} data successfully.`);
+    setLastSavedTime(new Date());
+  } catch (e) {
+    console.error(`Error saving ${category}:`, e);
+  } finally {
+    setIsSaving(false);
+  }
+};
+
+const handleSaveChillZone = async (seriesList: any[]) => {
+  if (isSaving) return;
+
+  setIsSaving(true);
+
+  // 1. 更新本地状态：将最新的 seriesList 数据合并到 resources 中
+  const updatedResources = {
+    ...resources,
+    seriesList: seriesList, // 接收 ChillZoneCard 传来的最新列表
+  };
+  setResources(updatedResources); // 立即更新本地状态
+
+  // 2. 构造 API Payload：确保包含所有资源类别 (包括 seriesList) 的最新数据
+  const payloadForSync = {
+    ...updatedResources,
+  };
+  
+  try {
+    const res = await fetch('/api/sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payloadForSync),
     });
-}, [saveAllResources]);
+
+    if (!res.ok) throw new Error('Failed to save chill zone data');
+    
+    console.log('Saved Chill Zone data successfully.');
+    setLastSavedTime(new Date());
+  } catch (e) {
+    console.error('Error saving chill zone:', e);
+  } finally {
+    setIsSaving(false);
+  }
+};
  
   return (
     <div className="animate-fade-in max-w-7xl mx-auto pb-12">
