@@ -841,7 +841,7 @@ setResources({
   reading: Array.isArray(hub?.reading) ? hub.reading : defaultResources.reading,
   writing: Array.isArray(hub?.writing) ? hub.writing : defaultResources.writing,
   speaking: Array.isArray(hub?.speaking) ? hub.speaking : defaultResources.speaking,
-});
+})
   };
 
   loadSyncData();
