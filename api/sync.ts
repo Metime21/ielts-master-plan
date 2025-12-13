@@ -48,7 +48,7 @@ function isPlainObject(obj: any): obj is Record<string, unknown> {
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  try {
+ try {
     // --- 【GET 请求：数据加载逻辑】 ---
     if (req.method === 'GET') {
       
