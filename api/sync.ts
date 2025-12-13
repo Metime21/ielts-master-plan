@@ -2,33 +2,18 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { kv } from '@vercel/kv';
 
-const ITEM_KEY = 'smartStorageData';
+// Define keys for each module
+const PLANNER_KEY = 'smartplanner:data';
+const HUB_KEY = 'resourcehub:data';
+const CHILL_KEY = 'chillzone:data';
 
 function isPlainObject(obj: any): obj is Record<string, any> {
-  return obj !== null && typeof obj === 'object' && !Array.isArray(obj) && Object.getPrototypeOf(obj) === Object.prototype;
-}
-
-// Detect SmartPlanner: has at least one YYYY-MM-DD key
-function isPlannerData(obj: any): boolean {
-  if (!isPlainObject(obj)) return false;
-  return Object.keys(obj).some(key => /^\d{4}-\d{2}-\d{2}$/.test(key));
-}
-
-// Detect ResourceHub: has at least one of the category fields as array
-function isResourceHubData(obj: any): boolean {
-  if (!isPlainObject(obj)) return false;
-  const categories = ['vocabulary', 'listening', 'reading', 'writing', 'speaking'];
-  return categories.some(cat => Array.isArray(obj[cat]));
-}
-
-// Detect ChillZone wrapper: { chillZone: { seriesList: [...] } }
-function isChillZoneWrapper(obj: any): boolean {
-  return isPlainObject(obj) && isPlainObject(obj.chillZone) && Array.isArray(obj.chillZone.seriesList);
-}
-
-// Detect ChillZone flat: { seriesList: [...] }
-function isChillZoneFlat(obj: any): boolean {
-  return isPlainObject(obj) && Array.isArray(obj.seriesList);
+  return (
+    obj !== null &&
+    typeof obj === 'object' &&
+    !Array.isArray(obj) &&
+    Object.getPrototypeOf(obj) === Object.prototype
+  );
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -41,54 +26,75 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
-    // Always read current full state from KV
-    let currentData = await kv.get(ITEM_KEY);
-    if (!isPlainObject(currentData)) {
-      currentData = {};
-    }
+    // Determine which module based on request body structure
+    const body = req.body;
 
     if (req.method === 'POST') {
-      const body = req.body;
+      let currentData: Record<string, any> = {};
+      let targetKey: string;
+      let newData: Record<string, any> = {};
 
-      // Start with current data — never lose existing fields
-      const mergedData = { ...currentData };
-
-      if (isPlannerData(body)) {
-        // Only update date-keyed entries
+      // Identify the module by payload structure
+      if (isPlainObject(body) && Object.keys(body).some(k => /^\d{4}-\d{2}-\d{2}$/.test(k))) {
+        // SmartPlanner: has date keys like "2025-12-13"
+        targetKey = PLANNER_KEY;
+        currentData = await kv.get(targetKey) || {};
+        newData = { ...currentData };
         for (const [key, value] of Object.entries(body)) {
           if (/^\d{4}-\d{2}-\d{2}$/.test(key)) {
-            mergedData[key] = value;
+            newData[key] = value;
           }
         }
-      } else if (isResourceHubData(body)) {
-        // Only update known category fields if they are arrays
+      } else if (
+        isPlainObject(body) &&
+        ['vocabulary', 'listening', 'reading', 'writing', 'speaking'].some(cat => Array.isArray(body[cat]))
+      ) {
+        // ResourceHub: has array categories
+        targetKey = HUB_KEY;
+        currentData = await kv.get(targetKey) || {};
+        newData = { ...currentData };
         const categories = ['vocabulary', 'listening', 'reading', 'writing', 'speaking'];
         for (const cat of categories) {
           if (Array.isArray(body[cat])) {
-            mergedData[cat] = body[cat];
+            newData[cat] = body[cat];
           }
-          // If body[cat] is not an array (or missing), leave existing value untouched
         }
-      } else if (isChillZoneWrapper(body)) {
-        // Extract chillZone object
-        mergedData.chillZone = { ...body.chillZone };
-      } else if (isChillZoneFlat(body)) {
-        // Wrap flat seriesList into chillZone
-        mergedData.chillZone = { ...body };
+      } else if (
+        isPlainObject(body) &&
+        (isPlainObject(body.chillZone) && Array.isArray(body.chillZone.seriesList)) ||
+        (Array.isArray(body.seriesList))
+      ) {
+        // ChillZone: either { chillZone: { seriesList: [...] } } or { seriesList: [...] }
+        targetKey = CHILL_KEY;
+        currentData = await kv.get(targetKey) || {};
+        newData = { ...currentData };
+        if (isPlainObject(body.chillZone)) {
+          newData.chillZone = { ...body.chillZone };
+        } else {
+          newData.chillZone = { ...body };
+        }
       } else {
-        // Unrecognized payload — reject to prevent accidental wipe
-        console.warn('Rejecting unrecognized sync payload:', body);
-        return res.status(400).json({ error: 'Unrecognized data format' });
+        // Reject unknown payload
+        console.warn('Unrecognized sync payload:', body);
+        return res.status(400).json({ error: 'Invalid data format' });
       }
 
-      // Save merged state (30-day expiry)
-      await kv.set(ITEM_KEY, mergedData, { ex: 60 * 60 * 24 * 30 });
+      // Save to correct key
+      await kv.set(targetKey, newData, { ex: 60 * 60 * 24 * 30 }); // 30-day expiry
       return res.status(200).json({ ok: true });
     }
 
     if (req.method === 'GET') {
-      // Return full merged state
-      return res.status(200).json(currentData);
+      // Return full state of all modules
+      const plannerData = await kv.get(PLANNER_KEY) || {};
+      const hubData = await kv.get(HUB_KEY) || {};
+      const chillData = await kv.get(CHILL_KEY) || {};
+
+      return res.status(200).json({
+        planner: plannerData,
+        resourceHub: hubData,
+        chillZone: chillData
+      });
     }
 
     return res.status(405).json({ error: 'Method not allowed' });
