@@ -876,47 +876,40 @@ useEffect(() => {
     }
   };
 
-  const handleSaveSection = (section: keyof typeof resources, items: ResourceItem[]) => {
-    // 1. 先在内存中计算出完整的新数据对象
-    // ...resources 会把原有的 seriesList (ChillZone) 也解构进去，不会丢
-    const updatedResources = { ...resources, [section]: items };
-    
-    // 2. 更新前端显示
-    setResources(updatedResources);
-    
-    // 3. 发送给后台保存
-    // 关键点：直接使用 updatedResources，而不是等待 state 更新
-    const payloadForSync = {
-      vocabulary: updatedResources.vocabulary,
-      listening: updatedResources.listening,
-      reading: updatedResources.reading,
-      writing: updatedResources.writing,
-      speaking: updatedResources.speaking,
-      // 修正：这里取 updatedResources 中的 seriesList，保留原有 Chill Zone 数据
-      seriesList: updatedResources.seriesList || [],
-    };
-    saveAllResources(payloadForSync); // <--- 确保这一行没有漏掉！
-  };
-// 【修改点 3a】：新增 Chill Zone 保存函数 (修复 Scope 错误)
-  const handleSaveChillZone = (items: any[]) => {
-    // 1. 计算出新的完整 resources 对象 (包含最新的 Chill Zone 数据)
-    const updatedResources = { ...resources, seriesList: items };
-
-    // 2. 更新前端显示
-    setResources(updatedResources);
-
-    // 3. 构造 Payload 并发送给后台
-    // 注意：这里必须重新构造 payloadForSync
-    const payloadForSync = {
-      vocabulary: updatedResources.vocabulary,
-      listening: updatedResources.listening,
-      reading: updatedResources.reading,
-      writing: updatedResources.writing,
-      speaking: updatedResources.speaking,
-      seriesList: updatedResources.seriesList || [], // 使用最新的 seriesList
-    };
-    saveAllResources(payloadForSync);
-  };
+  const handleSaveSection = useCallback(async (category: keyof ResourceHubData, items: ResourceItem[]) => {
+    setResources(prev => {
+        // 1. 更新当前类别的数据
+        const updatedResources = { ...prev, [category]: items };
+        
+        // 2. 构建 Payload，确保 Chill Zone 数据不被丢失
+        const payloadForSync = {
+            vocabulary: updatedResources.vocabulary,
+            listening: updatedResources.listening,
+            reading: updatedResources.reading,
+            writing: updatedResources.writing,
+            speaking: updatedResources.speaking,
+            // 从新状态中取出 seriesList
+            seriesList: updatedResources.seriesList || [], 
+        };
+        
+        // 3. 调用保存函数
+        saveAllResources(payloadForSync);
+        
+        return updatedResources;
+    });
+}, [saveAllResources]);
+const handleSaveChillZone = useCallback(async (newSeriesList: Series[]) => {
+    // 1. 更新本地状态
+    setResources(prev => {
+        // 创建包含所有数据和最新 seriesList 的完整对象
+        const updatedResources = { ...prev, seriesList: newSeriesList };
+        
+        // 2. 将完整的对象发送给 saveAllResources 进行保存
+        saveAllResources(updatedResources); 
+        
+        return updatedResources;
+    });
+}, [saveAllResources]);
  
   return (
     <div className="animate-fade-in max-w-7xl mx-auto pb-12">
