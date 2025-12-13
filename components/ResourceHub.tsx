@@ -875,7 +875,7 @@ useEffect(() => {
     reading: updated.reading,
     writing: updated.writing,
     speaking: updated.speaking,
-    seriesList: [], // 显式提供空数组，避免后端因字段缺失而拒绝
+   
   };
 
   saveAllResources(payloadForSync);
