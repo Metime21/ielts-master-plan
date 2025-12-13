@@ -835,23 +835,30 @@ useEffect(() => {
     try {
       const res = await fetch('/api/sync');
       if (!res.ok) throw new Error('Network response not ok');
-      const data = await res.json();
-      const hub = data?.resourceHub;
-      const chill = data?.chillZone; // <--- 【修改点 2a】：提取 Chill Zone 数据
+      
+      const data = await res.json(); 
 
+      // ⚠️ 确保您在组件顶部定义了 defaultResources 或 DEFAULT_RESOURCES 常量
+      // 否则将下面的 defaultResources 替换为 []
+
+      // 【🔥 关键修正：直接从 data 根对象中读取 Resource Hub 的数据】
       setResources({
-        vocabulary: Array.isArray(hub?.vocabulary) ? hub.vocabulary : defaultResources.vocabulary,
-        listening: Array.isArray(hub?.listening) ? hub.listening : defaultResources.listening,
-        reading: Array.isArray(hub?.reading) ? hub.reading : defaultResources.reading,
-        writing: Array.isArray(hub?.writing) ? hub.writing : defaultResources.writing,
-        speaking: Array.isArray(hub?.speaking) ? hub.speaking : defaultResources.speaking,
-        // 【修改点 2b】：从 hub 或 chill 中加载 seriesList
-        seriesList: Array.isArray(hub?.seriesList) 
-          ? hub.seriesList 
-          : Array.isArray(chill?.seriesList) 
-            ? chill.seriesList 
-            : [],
+        vocabulary: Array.isArray(data.vocabulary) ? data.vocabulary : defaultResources.vocabulary,
+        listening: Array.isArray(data.listening) ? data.listening : defaultResources.listening,
+        reading: Array.isArray(data.reading) ? data.reading : defaultResources.reading,
+        writing: Array.isArray(data.writing) ? data.writing : defaultResources.writing,
+        speaking: Array.isArray(data.speaking) ? data.speaking : defaultResources.speaking,
+        
+        // 读取 Chill Zone 数据
+        seriesList: Array.isArray(data.seriesList) ? data.seriesList : defaultResources.seriesList || [], 
       });
+      
+      // 假设您的 Smart Planner 相关的状态处理函数叫做 setPlannerData
+      // 如果 Smart Planner 依赖这个 API，您还需要在这里提取并设置它的状态
+      // setPlannerData(data); // 示例：如果 Planner 也在这个组件加载
+      
+      // 注意：ResourceHub 组件加载完毕，不需要处理 Planner 的数据。
+      // 因此，我们只设置 setResources。
     } catch (err) {
       console.error('Sync load failed:', err);
     }
