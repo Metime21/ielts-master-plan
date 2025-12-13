@@ -812,7 +812,6 @@ const ResourceHub: React.FC = () => {
       { name: 'IELTS Liz Tips', url: 'https://ieltsliz.com/ielts-speaking-free-lessons-essential-tips/', note: 
     'Part 1, 2, 3 Strategy' }, 
   ],
-  // 🔥 关键修复：添加 seriesList 字段，防止 ChillZoneCard 组件在初始化时崩溃
   seriesList: [], 
 };
 
