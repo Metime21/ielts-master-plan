@@ -50,28 +50,38 @@ function isPlainObject(obj: any): obj is Record<string, unknown> {
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     if (req.method === 'GET') {
-      const planner = ((await kv.get(PLANNER_KEY)) as PlannerData | null) || {};
-      const hub = ((await kv.get(HUB_KEY)) as ResourceHubData | null) || null;
-      const chill = ((await kv.get(CHILL_KEY)) as ChillZoneData | null) || null;
+    try {
+        // 【🔥 关键修正】：只从 HUB_KEY 读取完整的合并数据
+        const resourceHubData = ((await kv.get(HUB_KEY)) as ResourceHubData | null) || {
+            vocabulary: [],
+            listening: [],
+            reading: [],
+            writing: [],
+            speaking: [],
+            // 确保 seriesList 属性存在，即使为空
+            seriesList: [], 
+        };
 
-      const validHub =
-        hub &&
-        Array.isArray(hub.vocabulary) &&
-        Array.isArray(hub.listening) &&
-        Array.isArray(hub.reading) &&
-        Array.isArray(hub.writing) &&
-        Array.isArray(hub.speaking)
-          ? hub
-          : null;
+        // 获取 Planner 数据
+        const plannerData = ((await kv.get(PLANNER_KEY)) as PlannerData | null) || {};
 
-      const validChill = chill && Array.isArray(chill.seriesList) ? chill : null;
+        // 将 Resource Hub 和 Planner 数据合并返回
+        // 注意：这里 Planner 数据通常是以日期键值对的形式返回，前端会分别处理
+        const responseData = {
+            ...plannerData, // 包含日期键值对的 Planner 数据
+            ...resourceHubData, // 包含 vocabulary, listening, seriesList 等数据
+        };
 
-      return res.json({
-        planner,
-        resourceHub: validHub,
-        chillZone: validChill,
-      });
+        return res.json(responseData);
+    } catch (e) {
+        console.error('GET API error:', e);
+        // 在加载失败时，返回一个默认空对象，避免前端白屏
+        return res.status(500).json({
+             vocabulary: [], listening: [], reading: [], 
+             writing: [], speaking: [], seriesList: [],
+        });
     }
+}
 
     if (req.method === 'POST') {
     const body = req.body;
