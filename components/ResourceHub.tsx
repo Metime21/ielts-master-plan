@@ -877,37 +877,21 @@ useEffect(() => {
     }
   };
 
-  const handleSaveSection = async (
-  category: keyof ResourceHubData,
-  items: any[],
-) => {
-  // 确保 category 参数的类型是 ResourceHubData 的键
+const handleSaveSection = async (category: string, items: ResourceItem[]) => {
   if (isSaving) return;
-
   setIsSaving(true);
-  
-  // 1. 更新本地状态：将本次修改的数据合并到 resources 中
-  const updatedResources = {
-    ...resources,
-    [category]: items,
-  };
-  setResources(updatedResources); 
-
-  // 2. 构造 API Payload：使用展开运算符确保所有字段（包括 seriesList）都被包含
-  const payloadForSync = {
-    ...updatedResources,
-  };
 
   try {
+    // ✅ 只发送当前 category 的数据，比如 { vocabulary: [...] }
+    const payload = { [category]: items };
+
     const res = await fetch('/api/sync', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payloadForSync),
+      body: JSON.stringify(payload),
     });
 
-    if (!res.ok) throw new Error('Failed to save data');
-
-    console.log(`Saved ${category} data successfully.`);
+    if (!res.ok) throw new Error('Failed to save');
     setLastSavedTime(new Date());
   } catch (e) {
     console.error(`Error saving ${category}:`, e);
@@ -918,31 +902,19 @@ useEffect(() => {
 
 const handleSaveChillZone = async (seriesList: any[]) => {
   if (isSaving) return;
-
   setIsSaving(true);
 
-  // 1. 更新本地状态：将最新的 seriesList 数据合并到 resources 中
-  const updatedResources = {
-    ...resources,
-    seriesList: seriesList, // 接收 ChillZoneCard 传来的最新列表
-  };
-  setResources(updatedResources); // 立即更新本地状态
-
-  // 2. 构造 API Payload：确保包含所有资源类别 (包括 seriesList) 的最新数据
-  const payloadForSync = {
-    ...updatedResources,
-  };
-  
   try {
+    // ✅ 只发送 { seriesList: [...] } —— 这正是 sync.ts 识别 ChillZone 的格式！
+    const payload = { seriesList };
+
     const res = await fetch('/api/sync', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payloadForSync),
+      body: JSON.stringify(payload),
     });
 
-    if (!res.ok) throw new Error('Failed to save chill zone data');
-    
-    console.log('Saved Chill Zone data successfully.');
+    if (!res.ok) throw new Error('Failed to save chill zone');
     setLastSavedTime(new Date());
   } catch (e) {
     console.error('Error saving chill zone:', e);
