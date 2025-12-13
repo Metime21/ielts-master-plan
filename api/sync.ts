@@ -5,7 +5,7 @@ import { kv } from '@vercel/kv';
 // Define keys for each module
 const PLANNER_KEY = 'smartplanner:data';
 const HUB_KEY = 'resourcehub:data';
-const CHILL_KEY = 'chillzone:data';
+const CHILL_KEY = 'chillzone:data'; // ← 已添加
 
 function isPlainObject(obj: any): obj is Record<string, any> {
   return (
@@ -16,64 +16,47 @@ function isPlainObject(obj: any): obj is Record<string, any> {
   );
 }
 
-export default async function handler(req: VercelRequest, res: VercelResponse) {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-
-  if (req.method === 'OPTIONS') {
-    return res.status(204).end();
-  }
-
+export default async function handler(
+  req: VercelRequest,
+  res: VercelResponse
+) {
   try {
-    // Determine which module based on request body structure
-    const body = req.body;
-
     if (req.method === 'POST') {
-      let currentData: Record<string, any> = {};
-      let targetKey: string;
-      let newData: Record<string, any> = {};
+      const body = req.body;
+
+      let targetKey: string | null = null;
+      let currentData: any = {};
+      let newData: any = {};
 
       // Identify the module by payload structure
       if (isPlainObject(body) && Object.keys(body).some(k => /^\d{4}-\d{2}-\d{2}$/.test(k))) {
-        // SmartPlanner: has date keys like "2025-12-13"
+        // SmartPlanner: date-keyed object
         targetKey = PLANNER_KEY;
         currentData = await kv.get(targetKey) || {};
-        newData = { ...currentData };
-        for (const [key, value] of Object.entries(body)) {
-          if (/^\d{4}-\d{2}-\d{2}$/.test(key)) {
-            newData[key] = value;
-          }
-        }
-      } else if (
-        isPlainObject(body) &&
-        ['vocabulary', 'listening', 'reading', 'writing', 'speaking'].some(cat => Array.isArray(body[cat]))
-      ) {
+        newData = { ...currentData, ...body };
+      } 
+      else if (isPlainObject(body) && 
+        ['vocabulary', 'listening', 'reading', 'writing', 'speaking'].some(cat => Array.isArray(body[cat]))) {
         // ResourceHub: has array categories
         targetKey = HUB_KEY;
         currentData = await kv.get(targetKey) || {};
         newData = { ...currentData };
-        const categories = ['vocabulary', 'listening', 'reading', 'writing', 'speaking'];
-        for (const cat of categories) {
+        for (const cat of ['vocabulary', 'listening', 'reading', 'writing', 'speaking'] as const) {
           if (Array.isArray(body[cat])) {
             newData[cat] = body[cat];
           }
         }
-      } else if (
-        isPlainObject(body) &&
-        (isPlainObject(body.chillZone) && Array.isArray(body.chillZone.seriesList)) ||
-        (Array.isArray(body.seriesList))
-      ) {
-        // ChillZone: either { chillZone: { seriesList: [...] } } or { seriesList: [...] }
+      }
+      else if (isPlainObject(body) && 
+        body.chillZone && 
+        isPlainObject(body.chillZone) && 
+        Array.isArray(body.chillZone.seriesList)) {
+        // ChillZone: { chillZone: { seriesList: [...] } }
         targetKey = CHILL_KEY;
         currentData = await kv.get(targetKey) || {};
-        newData = { ...currentData };
-        if (isPlainObject(body.chillZone)) {
-          newData.chillZone = { ...body.chillZone };
-        } else {
-          newData.chillZone = { ...body };
-        }
-      } else {
+        newData = { ...currentData, seriesList: body.chillZone.seriesList };
+      }
+      else {
         // Reject unknown payload
         console.warn('Unrecognized sync payload:', body);
         return res.status(400).json({ error: 'Invalid data format' });
@@ -84,37 +67,33 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(200).json({ ok: true });
     }
 
-   if (req.method === 'GET') {
-  // 安全地获取 Planner 数据
-  const plannerData = await kv.get(PLANNER_KEY);
-  const planner = (plannerData && typeof plannerData === 'object') ? plannerData : {};
+    if (req.method === 'GET') {
+      // 安全地获取 Planner 数据
+      const plannerData = await kv.get(PLANNER_KEY);
+      const planner = (plannerData && typeof plannerData === 'object') ? plannerData : {};
 
-  // 安全地获取 Resource Hub 数据
-  const hubData = await kv.get(HUB_KEY);
-  const resourceHub = (hubData && typeof hubData === 'object') ? hubData : {
-    vocabulary: [],
-    listening: [],
-    reading: [],
-    writing: [],
-    speaking: []
-  };
+      // 安全地获取 Resource Hub 数据
+      const hubData = await kv.get(HUB_KEY);
+      const resourceHub = (
+        hubData &&
+        typeof hubData === 'object' &&
+        Array.isArray(hubData.vocabulary) &&
+        Array.isArray(hubData.listening) &&
+        Array.isArray(hubData.reading) &&
+        Array.isArray(hubData.writing) &&
+        Array.isArray(hubData.speaking)
+      ) ? hubData : { vocabulary: [], listening: [], reading: [], writing: [], speaking: [] };
 
-  // 安全地获取 ChillZone 数据
-const chillData = await kv.get(CHILL_KEY);
-const chillZone = (
-  chillData &&
-  typeof chillData === 'object' &&
-  !Array.isArray(chillData) &&
-  'seriesList' in chillData &&
-  Array.isArray(chillData.seriesList)
-) ? chillData : { seriesList: [] };
+      // 安全地获取 Chill Zone 数据
+      const chillData = await kv.get(CHILL_KEY);
+      const chillZone = (
+        chillData &&
+        typeof chillData === 'object' &&
+        Array.isArray(chillData.seriesList)
+      ) ? chillData : { seriesList: [] };
 
-  return res.status(200).json({
-    planner,
-    resourceHub,
-    chillZone
-  });
-}
+      return res.status(200).json({ planner, resourceHub, chillZone });
+    }
 
     return res.status(405).json({ error: 'Method not allowed' });
   } catch (error) {
