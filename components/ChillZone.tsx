@@ -47,9 +47,9 @@ const ChillZone: React.FC = () => {
         const res = await fetch('/api/sync');
         if (res.ok) {
           const data = await res.json();
+          // ✅ Correctly extract chillZone.seriesList from nested response
           if (data && typeof data === 'object' && data.chillZone?.seriesList) {
             const savedSeries = data.chillZone.seriesList;
-            // Validate structure
             if (Array.isArray(savedSeries)) {
               setSeriesList(savedSeries);
               return;
@@ -62,34 +62,19 @@ const ChillZone: React.FC = () => {
       // Fallback to default
       setSeriesList(DEFAULT_SERIES);
     };
+
     loadSyncData();
   }, []);
 
-  // 💾 Save entire app state to /api/sync (only update chillZone part)
+  // 💾 Save ONLY chillZone data to /api/sync
   const saveChillZoneData = async (newSeriesList: Series[]) => {
     try {
-      // First, fetch current full state
-      const res = await fetch('/api/sync');
-      let currentData: any = {};
-      if (res.ok) {
-        currentData = await res.json();
-        if (typeof currentData !== 'object') currentData = {};
-      }
-
-      // Merge: keep resourceHub intact, only update chillZone
-      const updatedData = {
-        ...currentData,
-        chillZone: {
-          ...(currentData.chillZone || {}),
-          seriesList: newSeriesList
-        }
-      };
-
-      // Save back
+      // ✅ Send ONLY the chillZone structure — backend auto routes to CHILL_KEY
+      const payload = { chillZone: { seriesList: newSeriesList } };
       const saveRes = await fetch('/api/sync', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updatedData)
+        body: JSON.stringify(payload)
       });
 
       if (!saveRes.ok) {
