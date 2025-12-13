@@ -15,7 +15,7 @@ interface ResourceHubData {
   reading: ResourceItem[];
   writing: ResourceItem[];
   speaking: ResourceItem[];
-  seriesList?: any[]; // for compatibility
+  seriesList?: any[];
 }
 
 interface PlannerData {
@@ -90,11 +90,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.json({ ok: true });
     }
 
-    // Handle ResourceHub partial update
+    // Handle ResourceHub partial update —— ✅ CORRECTED LOGIC BELOW
     const resourceCategories = ['vocabulary', 'listening', 'reading', 'writing', 'speaking'] as const;
     const hasResourceField = resourceCategories.some(cat => Array.isArray(body[cat]));
 
     if (hasResourceField) {
+      // ✅ Read from HUB_KEY, not PLANNER_KEY
       const current = ((await kv.get(HUB_KEY)) as ResourceHubData | null) || {
         vocabulary: [],
         listening: [],
@@ -112,11 +113,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         }
       }
 
-      // Also update seriesList if provided (e.g., from frontend)
+      // Also update seriesList if provided
       if (Array.isArray(body.seriesList)) {
         update.seriesList = body.seriesList;
       }
 
+      // ✅ Write to HUB_KEY — this was the critical bug
       await kv.set(HUB_KEY, update, { ex: 2592000 });
       return res.json({ ok: true });
     }
