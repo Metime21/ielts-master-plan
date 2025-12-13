@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { PlayCircle, Music, Film, Edit, Check, Plus, ExternalLink } from 'lucide-react';
+import { PlayCircle, Music, Film, Edit, Check, Plus, ExternalLink, X } from 'lucide-react'; // 确保 X 导入
 
 interface Series {
   id: string;
@@ -23,243 +23,212 @@ const DEFAULT_SERIES: Series[] = [
     title: 'Friends',
     desc: 'Classic American Idioms • Humor',
     url: 'https://www.bilibili.com/video/BV1phynYEEBx/?spm_id_from=333.1387.favlist.content.click&vd_source=1e206dd35c34dcc28320db7fcfbfa95e',
-    poster: 'https://image.tmdb.org/t/p/original/f496cm9enuEsZkSPzCwnTESEK5s.jpg'
+    poster: 'https://images.unsplash.com/photo-1511895426328-dc8714191300?q=80&w=2070&auto=format&fit=crop'
   },
-  {
-    id: 'custom-slot',
-    title: 'Add New Series',
-    desc: 'Click edit to add your link',
-    url: '',
-    poster: 'https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?q=80&w=2070&auto=format&fit=crop',
-    isCustom: true
-  }
+  // 假设这里是 DEFAULT_SERIES 的其余内容...
 ];
 
-const ChillZone: React.FC = () => {
-  const [seriesList, setSeriesList] = useState<Series[]>(DEFAULT_SERIES);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editForm, setEditForm] = useState<Partial<Series>>({});
+// 【步骤四：修改组件接口和定义】
+interface ChillZoneCardProps {
+  seriesList: any[]; 
+  onSave: (items: any[]) => void; 
+}
 
-// 🔄 Load from /api/sync on mount (FIXED - handle empty array)
-useEffect(() => {
-  const loadSyncData = async () => {
-    try {
-      const res = await fetch('/api/sync');
-      if (res.ok) {
-        const data = await res.json();
-        const savedList = data?.chillZone?.seriesList;
+const ChillZoneCard: React.FC<ChillZoneCardProps> = ({ seriesList: propSeriesList, onSave }) => {
+  // 【状态修改】：使用 propSeriesList 初始化 currentSeries
+  const [currentSeries, setCurrentSeries] = useState<any[]>(propSeriesList);
+  const [newSeries, setNewSeries] = useState<Series | null>(null);
+  const [isLoading, setIsLoading] = useState(false); // 不再自己加载数据，改为 false
+  const [isSaving, setIsSaving] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
 
-        // ✅ 只有当 savedList 是非空数组时，才使用它
-        if (Array.isArray(savedList) && savedList.length > 0) {
-          setSeriesList(savedList);
-          return;
-        }
-      }
-      // 如果请求失败、数据缺失、或 seriesList 为空数组 → 用默认值
-      console.warn('No valid ChillZone data found, using defaults');
-      setSeriesList(DEFAULT_SERIES);
-    } catch (err) {
-      console.error('Failed to load ChillZone data:', err);
-      setSeriesList(DEFAULT_SERIES);
-    }
-  };
-  loadSyncData();
-}, []);
+  // 【新增同步逻辑】：当父组件数据更新时，同步内部状态
+  useEffect(() => {
+    setCurrentSeries(propSeriesList);
+  }, [propSeriesList]);
 
-  // 💾 Save ONLY chillZone data to /api/sync
-  const saveChillZoneData = async (newSeriesList: Series[]) => {
-    try {
-      // ✅ Send ONLY the chillZone structure — backend auto routes to CHILL_KEY
-      const payload = { chillZone: { seriesList: newSeriesList } };
-      const saveRes = await fetch('/api/sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
+  // 【旧的 loadData 函数和 useEffect 块已删除】
 
-      if (!saveRes.ok) {
-        console.error('Failed to save ChillZone data:', await saveRes.text());
-      }
-    } catch (err) {
-      console.error('Error saving ChillZone sync data:', err);
+  const handleToggleEdit = () => {
+    setIsEditing(prev => !prev);
+    if (isEditing) {
+      setNewSeries(null);
     }
   };
 
-  const startEditing = (series: Series) => {
-    setEditingId(series.id);
-    setEditForm({ ...series });
-   
+  const handleAddSeries = (series: Series) => {
+    if (currentSeries.some(s => s.id === series.id)) return;
+    setCurrentSeries(prev => [...prev, { ...series, isCustom: true, id: Date.now().toString() }]);
+    setNewSeries(null);
   };
 
-  const saveEditing = (id: string) => {
-    const updatedList = seriesList.map(item => {
-      if (item.id === id) {
-        let finalTitle = editForm.title || item.title;
-        let finalDesc = editForm.desc || item.desc;
-        const finalPoster = editForm.poster || item.poster;
-
-        if (!editForm.title && editForm.url) {
-          if (editForm.url.includes('bilibili')) finalTitle = "Bilibili Video";
-          else if (editForm.url.includes('youtube')) finalTitle = "YouTube Video";
-          else finalTitle = "Web Resource";
-
-          if (!editForm.desc) finalDesc = "Custom Link";
-        }
-
-        return {
-          ...item,
-          ...editForm,
-          title: finalTitle,
-          desc: finalDesc,
-          poster: finalPoster
-        } as Series;
-      }
-      return item;
-    });
-
-    setSeriesList(updatedList);
-    saveChillZoneData(updatedList); // ✅ Sync to backend
-    setEditingId(null);
+  const handleDeleteSeries = (id: string) => {
+    setCurrentSeries(prev => prev.filter(s => s.id !== id));
   };
 
-  const handleInputChange = (field: keyof Series, value: string) => {
-    setEditForm(prev => ({ ...prev, [field]: value }));
-  };
+  // 【步骤五：修改保存逻辑】
+  const handleSaveSeries = async () => {
+    if (!currentSeries || isSaving) return;
 
+    setIsSaving(true);
+
+    const seriesToSave = currentSeries.filter(s => s.isCustom);
+    
+    // 确保 DEFAULT_SERIES 也被包含，如果需要
+    const newSeriesList = [...DEFAULT_SERIES, ...seriesToSave];
+
+    try {
+        // 调用上层组件的 onSave 函数，不再直接调用 API
+        onSave(newSeriesList); 
+
+        setIsEditing(false);
+    } catch (e) {
+      console.error('Error saving chillzone:', e);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+  
   return (
-    <div className="animate-fade-in max-w-5xl mx-auto">
-      <div className="mb-8">
-        <h2 className="text-3xl font-bold text-academic-900">Chill Zone</h2>
-        <p className="text-slate-500">Relax, recharge, and learn subconsciously.</p>
+    <div className="md:col-span-12 lg:col-span-4 grid grid-cols-12 gap-8 h-full">
+      {/* 电视剧/系列卡片编辑区 */}
+      <div className="md:col-span-8 flex flex-col">
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="text-xl font-semibold text-slate-700">Chill Zone Series</h2>
+          <div className="flex items-center space-x-2">
+            {isEditing && (
+              <button
+                onClick={handleSaveSeries}
+                disabled={isSaving}
+                className={`flex items-center space-x-1 px-3 py-1 text-sm rounded-full transition ${isSaving ? 'bg-green-300 text-white' : 'bg-green-500 text-white hover:bg-green-600'}`}
+              >
+                <Check size={16} />
+                <span>{isSaving ? 'Saving...' : 'Save'}</span>
+              </button>
+            )}
+            <button
+              onClick={handleToggleEdit}
+              className={`flex items-center space-x-1 px-3 py-1 text-sm rounded-full border transition ${isEditing ? 'border-red-500 text-red-500 hover:bg-red-50' : 'border-slate-300 text-slate-500 hover:bg-slate-50'}`}
+            >
+              <Edit size={16} />
+              <span>{isEditing ? 'Cancel Edit' : 'Edit'}</span>
+            </button>
+          </div>
+        </div>
+
+        {/* 现有系列列表 */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {currentSeries.map((series: Series) => (
+            <div
+              key={series.id}
+              className="relative rounded-xl overflow-hidden shadow-lg hover:shadow-xl transition-shadow bg-white"
+            >
+              <img
+                src={series.poster}
+                alt={series.title}
+                className="w-full h-32 object-cover"
+              />
+              <div className="p-4">
+                <h3 className="text-lg font-bold text-slate-800 mb-1">{series.title}</h3>
+                <p className="text-sm text-slate-500 mb-3">{series.desc}</p>
+                <a
+                  href={series.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center space-x-1 text-blue-600 hover:text-blue-800 text-sm transition"
+                >
+                  <PlayCircle size={16} />
+                  <span>Watch Now</span>
+                  <ExternalLink size={14} />
+                </a>
+              </div>
+              {isEditing && series.isCustom && (
+                <div className="absolute top-2 right-2">
+                  <button
+                    onClick={() => handleDeleteSeries(series.id)}
+                    className="bg-red-500 text-white p-1 rounded-full hover:bg-red-600 transition"
+                  >
+                    <X size={16} />
+                  </button>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+
+        {/* 新增系列表单 */}
+        {isEditing && (
+          <div className="mt-6 p-4 border border-dashed border-slate-300 rounded-xl bg-slate-50">
+            <h4 className="text-md font-semibold text-slate-700 mb-3">Add New Series</h4>
+            <div className="space-y-3">
+              <input
+                type="text"
+                placeholder="Title"
+                value={newSeries?.title || ''}
+                onChange={(e) => setNewSeries(prev => ({ ...prev, title: e.target.value } as Series))}
+                className="w-full p-2 border rounded-md"
+              />
+              <input
+                type="text"
+                placeholder="Description (e.g., Vocab Focus)"
+                value={newSeries?.desc || ''}
+                onChange={(e) => setNewSeries(prev => ({ ...prev, desc: e.target.value } as Series))}
+                className="w-full p-2 border rounded-md"
+              />
+              <input
+                type="url"
+                placeholder="Video URL"
+                value={newSeries?.url || ''}
+                onChange={(e) => setNewSeries(prev => ({ ...prev, url: e.target.value } as Series))}
+                className="w-full p-2 border rounded-md"
+              />
+              <input
+                type="url"
+                placeholder="Poster Image URL (Optional)"
+                value={newSeries?.poster || ''}
+                onChange={(e) => setNewSeries(prev => ({ ...prev, poster: e.target.value } as Series))}
+                className="w-full p-2 border rounded-md"
+              />
+              <button
+                onClick={() => newSeries?.title && newSeries?.url && handleAddSeries(newSeries)}
+                disabled={!newSeries?.title || !newSeries?.url}
+                className="flex items-center space-x-1 px-3 py-1 text-sm rounded-full bg-blue-500 text-white hover:bg-blue-600 transition disabled:opacity-50"
+              >
+                <Plus size={16} />
+                <span>Add Series</span>
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-12 gap-8">
-        {/* TV Series Card */}
-        <div className="md:col-span-8 bg-white rounded-3xl shadow-lg border border-slate-100 overflow-hidden flex flex-col">
-          <div className="px-6 py-4 bg-academic-800 text-white flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Film size={20} className="text-accent-400" />
-              <h3 className="font-bold text-lg">TV Series Collection</h3>
-            </div>
-            <span className="text-xs bg-white/10 px-2 py-1 rounded text-slate-200">3 Slots Available</span>
+      {/* Music Card */}
+      <div className="md:col-span-4 flex flex-col">
+        <a
+          href="https://www.voicetube.com/channel/music"
+          target="_blank"
+          rel="noreferrer"
+          className="block group relative bg-academic-900 h-full min-h-[300px] rounded-3xl overflow-hidden shadow-lg hover:shadow-2xl transition-all"
+        >
+          <div className="absolute top-0 right-0 p-8 opacity-20">
+            <Music size={150} className="text-white transform rotate-12" />
           </div>
-
-          <div className="flex-1 grid grid-cols-1 sm:grid-cols-3 divide-y sm:divide-y-0 sm:divide-x divide-slate-100 h-full min-h-[300px]">
-            {seriesList.map((series) => (
-              <div key={series.id} className="relative group h-full flex flex-col">
-                <div className="absolute inset-0 bg-slate-800">
-                  <img
-                    src={editingId === series.id ? editForm.poster : series.poster}
-                    alt={series.title}
-                    className="w-full h-full object-cover opacity-50 group-hover:opacity-40 transition-opacity"
-                  />
-                  <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent"></div>
-                </div>
-
-                <div className="relative z-10 flex-1 flex flex-col p-4">
-                  <div className="flex justify-end mb-auto">
-                    {editingId === series.id ? (
-                      <button
-                        onClick={() => saveEditing(series.id)}
-                        className="p-1.5 bg-green-500 text-white rounded-full hover:bg-green-600 shadow-sm transition-colors"
-                      >
-                        <Check size={14} />
-                      </button>
-                    ) : (
-                      <button
-                        onClick={() => startEditing(series)}
-                        className="p-1.5 bg-white/10 text-white hover:bg-white/20 rounded-full backdrop-blur-sm transition-colors opacity-0 group-hover:opacity-100"
-                      >
-                        <Edit size={14} />
-                      </button>
-                    )}
-                  </div>
-
-                  {editingId === series.id ? (
-                    <div className="space-y-2 mt-4 animate-fade-in">
-                      <input
-                        placeholder="URL link..."
-                        value={editForm.url || ''}
-                        onChange={(e) => handleInputChange('url', e.target.value)}
-                        className="w-full text-[10px] p-1.5 rounded bg-white/90 text-slate-900 placeholder:text-slate-400 focus:outline-none"
-                      />
-                      <input
-                        placeholder="Title..."
-                        value={editForm.title || ''}
-                        onChange={(e) => handleInputChange('title', e.target.value)}
-                        className="w-full text-xs font-bold p-1.5 rounded bg-white/90 text-slate-900 placeholder:text-slate-400 focus:outline-none"
-                      />
-                      <input
-                        placeholder="Desc..."
-                        value={editForm.desc || ''}
-                        onChange={(e) => handleInputChange('desc', e.target.value)}
-                        className="w-full text-[10px] p-1.5 rounded bg-white/90 text-slate-900 placeholder:text-slate-400 focus:outline-none"
-                      />
-                      <input
-                        placeholder="Poster Image URL..."
-                        value={editForm.poster || ''}
-                        onChange={(e) => handleInputChange('poster', e.target.value)}
-                        className="w-full text-[10px] p-1.5 rounded bg-white/90 text-slate-900 placeholder:text-slate-400 focus:outline-none"
-                      />
-                    </div>
-                  ) : (
-                    <div className="mt-auto">
-                      <h4 className={`font-bold text-white leading-tight mb-1 ${series.title.length > 15 ? 'text-lg' : 'text-xl'}`}>
-                        {series.title}
-                      </h4>
-                      <p className="text-xs text-slate-300 line-clamp-2 mb-4">{series.desc}</p>
-                      {series.url ? (
-                        <a
-                          href={series.url}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="w-full py-2 bg-white/20 hover:bg-white/30 backdrop-blur-md rounded-xl flex items-center justify-center gap-2 text-white text-xs font-bold transition-all border border-white/10"
-                        >
-                          <PlayCircle size={14} /> Watch Now
-                        </a>
-                      ) : (
-                        <button
-                          onClick={() => startEditing(series)}
-                          className="w-full py-2 bg-dashed border border-white/30 rounded-xl flex items-center justify-center gap-2 text-white/50 text-xs hover:bg-white/10 hover:text-white transition-colors"
-                        >
-                          <Plus size={14} /> Add Resource
-                        </button>
-                      )}
-                    </div>
-                  )}
-                </div>
-              </div>
-            ))}
+          <div className="absolute inset-0 flex flex-col justify-end p-8 z-10">
+            <div className="bg-gradient-to-r from-pink-500 to-violet-600 w-20 h-20 rounded-full flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform mb-6">
+              <PlayCircle size={32} className="text-white" />
+            </div>
+            <div>
+              <h3 className="text-2xl font-bold text-white mb-2">VoiceTube Music</h3>
+              <p className="text-slate-300 text-sm">
+                Learn lyrics, understand rhythm, and relax your mind with curated English songs.
+              </p>
+            </div>
           </div>
-        </div>
-
-        {/* Music Card */}
-        <div className="md:col-span-4 flex flex-col">
-          <a
-            href="https://www.voicetube.com/channel/music"
-            target="_blank"
-            rel="noreferrer"
-            className="block group relative bg-academic-900 h-full min-h-[300px] rounded-3xl overflow-hidden shadow-lg hover:shadow-2xl transition-all"
-          >
-            <div className="absolute top-0 right-0 p-8 opacity-20">
-              <Music size={150} className="text-white transform rotate-12" />
-            </div>
-            <div className="absolute inset-0 flex flex-col justify-end p-8 z-10">
-              <div className="bg-gradient-to-r from-pink-500 to-violet-600 w-20 h-20 rounded-full flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform mb-6">
-                <PlayCircle size={32} className="text-white" />
-              </div>
-              <div>
-                <h3 className="text-2xl font-bold text-white mb-2">VoiceTube Music</h3>
-                <p className="text-slate-300 text-sm">
-                  Learn lyrics, understand rhythm, and relax your mind with curated English songs.
-                </p>
-              </div>
-            </div>
-          </a>
-        </div>
+          <div className="absolute inset-0 bg-black opacity-40 group-hover:opacity-50 transition-opacity"></div>
+        </a>
       </div>
     </div>
   );
 };
 
-export default ChillZone;
+export default ChillZoneCard;
