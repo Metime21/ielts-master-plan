@@ -865,20 +865,20 @@ useEffect(() => {
   };
 
   const handleSaveSection = (section: keyof typeof resources, items: ResourceItem[]) => {
-  const updated = { ...resources, [section]: items };
-  setResources(updated);
-
-  // 构造符合 ResourceHubData 接口的完整对象，确保后端能正确识别
-  const payloadForSync = {
-    vocabulary: updated.vocabulary,
-    listening: updated.listening,
-    reading: updated.reading,
-    writing: updated.writing,
-    speaking: updated.speaking,
-   
-  };
-
-  saveAllResources(payloadForSync);
+  setResources(prev => {
+    const updated = { ...prev, [section]: items };
+    // 在状态更新回调中构造 payload，确保数据是最新的
+    const payloadForSync = {
+      vocabulary: updated.vocabulary,
+      listening: updated.listening,
+      reading: updated.reading,
+      writing: updated.writing,
+      speaking: updated.speaking,
+      seriesList: [],
+    };
+    saveAllResources(payloadForSync);
+    return updated;
+  });
 };
   return (
     <div className="animate-fade-in max-w-7xl mx-auto pb-12">
