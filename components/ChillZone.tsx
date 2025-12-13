@@ -40,31 +40,29 @@ const ChillZone: React.FC = () => {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<Partial<Series>>({});
 
-  // 🔄 Load from /api/sync on mount
-  useEffect(() => {
-    const loadSyncData = async () => {
-      try {
-        const res = await fetch('/api/sync');
-        if (res.ok) {
-          const data = await res.json();
-          // ✅ Correctly extract chillZone.seriesList from nested response
-          if (data && typeof data === 'object' && data.chillZone?.seriesList) {
-            const savedSeries = data.chillZone.seriesList;
-            if (Array.isArray(savedSeries)) {
-              setSeriesList(savedSeries);
-              return;
-            }
-          }
+  // 🔄 Load from /api/sync on mount (FIXED)
+useEffect(() => {
+  const loadSyncData = async () => {
+    try {
+      const res = await fetch('/api/sync');
+      if (res.ok) {
+        const data = await res.json();
+        // ✅ 更安全的判断：确保 chillZone 存在且 seriesList 是数组
+        if (data?.chillZone?.seriesList && Array.isArray(data.chillZone.seriesList)) {
+          setSeriesList(data.chillZone.seriesList);
+          return; // 成功加载，直接返回
         }
-      } catch (err) {
-        console.warn('Failed to load ChillZone sync data, using defaults.', err);
       }
-      // Fallback to default
+      // 只有 HTTP 请求失败 或 数据结构无效时，才用默认值
+      console.warn('ChillZone data not found or invalid, using defaults');
       setSeriesList(DEFAULT_SERIES);
-    };
-
-    loadSyncData();
-  }, []);
+    } catch (err) {
+      console.error('Failed to load ChillZone data:', err);
+      setSeriesList(DEFAULT_SERIES);
+    }
+  };
+  loadSyncData();
+}, []);
 
   // 💾 Save ONLY chillZone data to /api/sync
   const saveChillZoneData = async (newSeriesList: Series[]) => {
