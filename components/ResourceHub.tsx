@@ -828,20 +828,21 @@ const ResourceHub: React.FC = () => {
 useEffect(() => {
   const loadSyncData = async () => {
     try {
-    const res = await fetch('/api/sync');
-if (!res.ok) throw new Error('Network response not ok');
+      const res = await fetch('/api/sync');
+      if (!res.ok) throw new Error('Network response not ok');
+      const data = await res.json();
+      const hub = data?.resourceHub;
 
-const data = await res.json();
-const hub = data?.resourceHub;
-
-// ✅ 宽松合并：每个分类独立判断，避免因单个字段缺失导致全量回退
-setResources({
-  vocabulary: Array.isArray(hub?.vocabulary) ? hub.vocabulary : defaultResources.vocabulary,
-  listening: Array.isArray(hub?.listening) ? hub.listening : defaultResources.listening,
-  reading: Array.isArray(hub?.reading) ? hub.reading : defaultResources.reading,
-  writing: Array.isArray(hub?.writing) ? hub.writing : defaultResources.writing,
-  speaking: Array.isArray(hub?.speaking) ? hub.speaking : defaultResources.speaking,
-})
+      setResources({
+        vocabulary: Array.isArray(hub?.vocabulary) ? hub.vocabulary : defaultResources.vocabulary,
+        listening: Array.isArray(hub?.listening) ? hub.listening : defaultResources.listening,
+        reading: Array.isArray(hub?.reading) ? hub.reading : defaultResources.reading,
+        writing: Array.isArray(hub?.writing) ? hub.writing : defaultResources.writing,
+        speaking: Array.isArray(hub?.speaking) ? hub.speaking : defaultResources.speaking,
+      });
+    } catch (err) {
+      console.error('Sync load failed:', err);
+    }
   };
 
   loadSyncData();
