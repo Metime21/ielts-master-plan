@@ -819,12 +819,14 @@ const ResourceHub: React.FC = () => {
     reading: ResourceItem[];
     writing: ResourceItem[];
     speaking: ResourceItem[];
+    seriesList: any[]; // <--- 【修改点 1a】：加入 Chill Zone 字段到类型
   }>({
     vocabulary: defaultResources.vocabulary,
     listening: defaultResources.listening,
     reading: defaultResources.reading,
     writing: defaultResources.writing,
     speaking: defaultResources.speaking,
+    seriesList: [], // <--- 【修改点 1b】：加入 Chill Zone 字段到初始值
   });
 
   // Load from /api/sync on mount (FIXED)
@@ -835,6 +837,7 @@ useEffect(() => {
       if (!res.ok) throw new Error('Network response not ok');
       const data = await res.json();
       const hub = data?.resourceHub;
+      const chill = data?.chillZone; // <--- 【修改点 2a】：提取 Chill Zone 数据
 
       setResources({
         vocabulary: Array.isArray(hub?.vocabulary) ? hub.vocabulary : defaultResources.vocabulary,
@@ -842,6 +845,12 @@ useEffect(() => {
         reading: Array.isArray(hub?.reading) ? hub.reading : defaultResources.reading,
         writing: Array.isArray(hub?.writing) ? hub.writing : defaultResources.writing,
         speaking: Array.isArray(hub?.speaking) ? hub.speaking : defaultResources.speaking,
+        // 【修改点 2b】：从 hub 或 chill 中加载 seriesList
+        seriesList: Array.isArray(hub?.seriesList) 
+          ? hub.seriesList 
+          : Array.isArray(chill?.seriesList) 
+            ? chill.seriesList 
+            : [],
       });
     } catch (err) {
       console.error('Sync load failed:', err);
@@ -883,10 +892,29 @@ useEffect(() => {
       reading: updatedResources.reading,
       writing: updatedResources.writing,
       speaking: updatedResources.speaking,
-      // 修正：这里取 updatedResources 中的 seriesList，保留原有 ChillZone 数据
-      seriesList: updatedResources.seriesList || [], 
+      // 修正：这里取 updatedResources 中的 seriesList，保留原有 Chill Zone 数据
+      seriesList: updatedResources.seriesList || [],
     };
+    saveAllResources(payloadForSync); // <--- 确保这一行没有漏掉！
+  };
+// 【修改点 3a】：新增 Chill Zone 保存函数 (修复 Scope 错误)
+  const handleSaveChillZone = (items: any[]) => {
+    // 1. 计算出新的完整 resources 对象 (包含最新的 Chill Zone 数据)
+    const updatedResources = { ...resources, seriesList: items };
 
+    // 2. 更新前端显示
+    setResources(updatedResources);
+
+    // 3. 构造 Payload 并发送给后台
+    // 注意：这里必须重新构造 payloadForSync
+    const payloadForSync = {
+      vocabulary: updatedResources.vocabulary,
+      listening: updatedResources.listening,
+      reading: updatedResources.reading,
+      writing: updatedResources.writing,
+      speaking: updatedResources.speaking,
+      seriesList: updatedResources.seriesList || [], // 使用最新的 seriesList
+    };
     saveAllResources(payloadForSync);
   };
  
