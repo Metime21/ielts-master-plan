@@ -4,10 +4,8 @@ import { ChevronLeft, ChevronRight, Edit3, Save, CheckCircle2, Calendar as Calen
 import { Task, DailyReview, Mood, DayData } from '../types';
 
 // --- Helpers ---
-
 const getDaysInMonth = (year: number, month: number) => new Date(year, month + 1, 0).getDate();
 const getFirstDayOfMonth = (year: number, month: number) => new Date(year, month, 1).getDay();
-
 const formatDateKey = (date: Date): string => {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 };
@@ -33,15 +31,16 @@ const MORANDI_BORDERS = [
 ];
 
 // --- API Sync Functions ---
-
 async function loadFromAPI(): Promise<Record<string, DayData>> {
   try {
     const res = await fetch('/api/sync');
     if (res.ok) {
-      const data = await res.json();
-      if (typeof data === 'object' && data !== null && !Array.isArray(data)) {
-        return data;
+      const fullData = await res.json();
+      // ✅ ONLY CHANGE: extract planner data from nested response
+      if (fullData && typeof fullData === 'object' && fullData.planner) {
+        return fullData.planner;
       }
+      return {};
     }
   } catch (err) {
     console.warn('Failed to load from /api/sync:', err);
@@ -72,7 +71,6 @@ async function saveToAPI(history: Record<string, DayData>): Promise<void> {
         dayData.review.mood !== null ||
         dayData.review.readingListening.trim() !== '' ||
         dayData.review.speakingWriting.trim() !== '';
-
       const hasProgress = dayData.tasks.some(task => task.progress > 0);
 
       if (hasRealReview || hasProgress) {
@@ -90,9 +88,7 @@ async function saveToAPI(history: Record<string, DayData>): Promise<void> {
       throw new Error(`HTTP ${res.status}`);
     }
   } catch (err) {
-    // ❌ No alert! Only log for debugging.
     console.error('Sync failed (data saved locally):', err);
-    // Still keep localStorage updated below
   }
 
   // Always persist to localStorage as backup
@@ -104,7 +100,6 @@ async function saveToAPI(history: Record<string, DayData>): Promise<void> {
 }
 
 // --- Main Component ---
-
 const SmartPlanner: React.FC = () => {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState(new Date());
@@ -119,17 +114,14 @@ const SmartPlanner: React.FC = () => {
   }, []);
 
   const dateKey = formatDateKey(selectedDate);
-  
+
   const currentData: DayData = history[dateKey] || {
     tasks: JSON.parse(JSON.stringify(INITIAL_TASKS)),
     review: { ...INITIAL_REVIEW }
   };
 
   const updateHistory = (tasks: Task[], review: DailyReview) => {
-    const newHistory = {
-      ...history,
-      [dateKey]: { tasks, review }
-    };
+    const newHistory = { ...history, [dateKey]: { tasks, review } };
     setHistory(newHistory);
     saveToAPI(newHistory); // Auto-save silently
   };
@@ -183,7 +175,7 @@ const SmartPlanner: React.FC = () => {
     for (let i = 0; i < firstDay; i++) {
       days.push(<div key={`empty-${i}`} className="h-6 w-6" />);
     }
-    
+
     for (let d = 1; d <= daysInMonth; d++) {
       const date = new Date(year, month, d);
       const key = formatDateKey(date);
@@ -197,10 +189,11 @@ const SmartPlanner: React.FC = () => {
           onClick={() => setSelectedDate(date)}
           className="relative h-7 w-7 flex flex-col items-center justify-center rounded-full text-[10px] font-medium transition-all"
         >
-          <div className={`
-            h-6 w-6 flex items-center justify-center rounded-full transition-colors duration-200
-            ${isToday ? 'bg-red-500 text-white shadow-md' : isSelected ? 'bg-academic-800 text-white shadow-md' : 'text-slate-600 hover:bg-slate-100'}
-          `}>
+          <div className={`h-6 w-6 flex items-center justify-center rounded-full transition-colors duration-200 ${
+            isToday ? 'bg-red-500 text-white shadow-md' :
+            isSelected ? 'bg-academic-800 text-white shadow-md' :
+            'text-slate-600 hover:bg-slate-100'
+          }`}>
             {d}
           </div>
           {hasData && !isSelected && !isToday && (
@@ -233,8 +226,8 @@ const SmartPlanner: React.FC = () => {
               </p>
             </div>
             <div className="text-right">
-               <div className="text-4xl font-black text-slate-200 tracking-tighter leading-none">{selectedDate.getDate()}</div>
-               <div className="text-xs font-bold text-slate-400 uppercase tracking-widest">{monthNames[selectedDate.getMonth()]}</div>
+              <div className="text-4xl font-black text-slate-200 tracking-tighter leading-none">{selectedDate.getDate()}</div>
+              <div className="text-xs font-bold text-slate-400 uppercase tracking-widest">{monthNames[selectedDate.getMonth()]}</div>
             </div>
           </div>
 
@@ -246,9 +239,11 @@ const SmartPlanner: React.FC = () => {
                   <button
                     key={m}
                     onClick={() => handleReviewChange('mood', m)}
-                    className={`text-4xl w-16 h-16 flex items-center justify-center rounded-full transition-all transform hover:scale-110 
-                      ${currentData.review.mood === m ? 'bg-white ring-2 ring-accent-400 scale-110 shadow-lg' : 'hover:bg-white/80 grayscale opacity-60 hover:grayscale-0 hover:opacity-100'}
-                    `}
+                    className={`text-4xl w-16 h-16 flex items-center justify-center rounded-full transition-all transform hover:scale-110 ${
+                      currentData.review.mood === m
+                        ? 'bg-white ring-2 ring-accent-400 scale-110 shadow-lg'
+                        : 'hover:bg-white/80 grayscale opacity-60 hover:grayscale-0 hover:opacity-100'
+                    }`}
                   >
                     {m}
                   </button>
@@ -259,10 +254,9 @@ const SmartPlanner: React.FC = () => {
             <div className="space-y-6">
               <div className="group bg-white rounded-3xl p-5 border border-slate-100 focus-within:ring-2 focus-within:ring-academic-100 focus-within:border-academic-200 transition-all shadow-sm hover:shadow-md">
                 <label className="text-xs font-bold text-academic-600 uppercase tracking-wider mb-2 flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-indigo-400"></span>
-                  Reading & Listening Analysis
+                  <span className="w-2 h-2 rounded-full bg-indigo-400"></span> Reading & Listening Analysis
                 </label>
-                <textarea 
+                <textarea
                   className="w-full bg-transparent border-none focus:ring-0 text-slate-700 text-base leading-relaxed h-60 resize-none placeholder:text-slate-300"
                   placeholder="Detailed breakdown of mistakes, synonyms found, or tricky accents encountered..."
                   value={currentData.review.readingListening}
@@ -272,10 +266,9 @@ const SmartPlanner: React.FC = () => {
 
               <div className="group bg-white rounded-3xl p-5 border border-slate-100 focus-within:ring-2 focus-within:ring-academic-100 focus-within:border-academic-200 transition-all shadow-sm hover:shadow-md">
                 <label className="text-xs font-bold text-academic-600 uppercase tracking-wider mb-2 flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-pink-400"></span>
-                  Speaking & Writing Notes
+                  <span className="w-2 h-2 rounded-full bg-pink-400"></span> Speaking & Writing Notes
                 </label>
-                <textarea 
+                <textarea
                   className="w-full bg-transparent border-none focus:ring-0 text-slate-700 text-base leading-relaxed h-60 resize-none placeholder:text-slate-300"
                   placeholder="New idioms, grammar corrections, or ideas for Task 2 topics..."
                   value={currentData.review.speakingWriting}
@@ -293,25 +286,31 @@ const SmartPlanner: React.FC = () => {
             <div className="p-4 pt-5">
               <div className="flex justify-between items-center mb-3">
                 <h3 className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
-                  <CalendarIcon size={12} className="text-accent-500"/>
+                  <CalendarIcon size={12} className="text-accent-500" />
                   {monthNames[month]} <span className="text-slate-400 font-normal">{year}</span>
                 </h3>
                 <div className="flex gap-1">
-                  <button onClick={() => changeMonth(-1)} className="p-0.5 hover:bg-slate-50 rounded-full text-slate-400 hover:text-slate-600 transition-colors">
+                  <button
+                    onClick={() => changeMonth(-1)}
+                    className="p-0.5 hover:bg-slate-50 rounded-full text-slate-400 hover:text-slate-600 transition-colors"
+                  >
                     <ChevronLeft size={14} />
                   </button>
-                  <button onClick={() => changeMonth(1)} className="p-0.5 hover:bg-slate-50 rounded-full text-slate-400 hover:text-slate-600 transition-colors">
+                  <button
+                    onClick={() => changeMonth(1)}
+                    className="p-0.5 hover:bg-slate-50 rounded-full text-slate-400 hover:text-slate-600 transition-colors"
+                  >
                     <ChevronRight size={14} />
                   </button>
                 </div>
               </div>
-              
+
               <div className="grid grid-cols-7 gap-y-1 justify-items-center mb-1 border-b border-slate-50 pb-1">
                 {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((day, i) => (
                   <span key={i} className="text-[8px] font-bold text-slate-300 uppercase tracking-wider">{day}</span>
                 ))}
               </div>
-              
+
               <div className="grid grid-cols-7 gap-y-1 justify-items-center">
                 {renderCalendarDays()}
               </div>
@@ -327,29 +326,31 @@ const SmartPlanner: React.FC = () => {
                 {currentData.tasks.filter(t => t.progress === 100).length}/4
               </span>
             </div>
-            
+
             <div className="space-y-5">
               {currentData.tasks.map((task, index) => (
-                <div 
-                  key={task.id} 
-                  className={`bg-white rounded-2xl p-6 shadow-sm border-l-4 hover:shadow-md transition-all group ${MORANDI_BORDERS[index % MORANDI_BORDERS.length].replace('border-', 'border-l-')}`}
+                <div
+                  key={task.id}
+                  className={`bg-white rounded-2xl p-6 shadow-sm border-l-4 hover:shadow-md transition-all group ${
+                    MORANDI_BORDERS[index % MORANDI_BORDERS.length].replace('border-', 'border-l-')
+                  }`}
                 >
                   <div className="flex justify-between items-start mb-3 gap-2">
                     {editingTaskId === task.id ? (
                       <div className="w-full space-y-2">
-                        <input 
+                        <input
                           className="w-full text-[10px] font-bold text-slate-500 bg-slate-50 rounded px-1 py-0.5"
                           value={task.timeRange}
                           onChange={(e) => handleTaskChange(task.id, 'timeRange', e.target.value)}
                           placeholder="Time"
                         />
-                        <input 
+                        <input
                           className="w-full text-xs font-bold text-academic-900 bg-slate-50 rounded px-1 py-0.5"
                           value={task.subject}
                           onChange={(e) => handleTaskChange(task.id, 'subject', e.target.value)}
                           placeholder="Subject"
                         />
-                        <textarea 
+                        <textarea
                           className="w-full text-lg font-medium text-slate-700 bg-slate-50 rounded px-1 py-1 resize-none"
                           rows={2}
                           value={task.content}
@@ -360,15 +361,17 @@ const SmartPlanner: React.FC = () => {
                     ) : (
                       <div className="flex-1 min-w-0">
                         <div className="flex justify-between items-center pr-1 mb-1">
-                          <div className="text-[9px] font-bold text-slate-400 uppercase tracking-wide bg-slate-50 inline-block px-1 py-0.5 rounded">{task.timeRange}</div>
+                          <div className="text-[9px] font-bold text-slate-400 uppercase tracking-wide bg-slate-50 inline-block px-1 py-0.5 rounded">
+                            {task.timeRange}
+                          </div>
                           {task.progress === 100 && <CheckCircle2 size={12} className="text-green-500 flex-shrink-0" />}
                         </div>
                         <div className="text-xs font-bold text-academic-800 truncate mb-1">{task.subject}</div>
                         <div className="text-lg font-medium text-slate-700 leading-snug break-words">{task.content}</div>
                       </div>
                     )}
-                    
-                    <button 
+
+                    <button
                       onClick={() => setEditingTaskId(editingTaskId === task.id ? null : task.id)}
                       className="text-slate-300 hover:text-academic-500 transition-colors p-0.5 flex-shrink-0 mt-1"
                     >
@@ -376,7 +379,7 @@ const SmartPlanner: React.FC = () => {
                     </button>
                   </div>
 
-                  <div 
+                  <div
                     className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden cursor-pointer relative group/progress mt-4"
                     onClick={(e) => handleProgressClick(e, task.id)}
                     title="Click to set progress (0%, 25%, 50%, 75%, 100%)"
@@ -388,8 +391,7 @@ const SmartPlanner: React.FC = () => {
                       <div className="w-[25%] h-full border-r border-black"></div>
                       <div className="w-[12.5%] h-full"></div>
                     </div>
-                    
-                    <div 
+                    <div
                       className={`h-full transition-all duration-300 ease-out ${getProgressColor(task.progress)}`}
                       style={{ width: `${task.progress}%` }}
                     />
