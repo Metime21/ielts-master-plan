@@ -15,15 +15,31 @@ function isPlainObject(obj: any): obj is Record<string, any> {
 
 function isPlannerData(obj: any): boolean {
   if (!isPlainObject(obj)) return false;
-  const keys = Object.keys(obj);
-  if (keys.length === 0) return false;
-  return keys.every(key => /^\d{4}-\d{2}-\d{2}$/.test(key));
+  let hasDateKey = false;
+  for (const key in obj) {
+    if (Object.hasOwn(obj, key) && /^\d{4}-\d{2}-\d{2}$/.test(key)) {
+      hasDateKey = true;
+      break;
+    }
+  }
+  return hasDateKey;
 }
 
 function isResourceHubData(obj: any): boolean {
   if (!isPlainObject(obj)) return false;
   const fields = ['vocabulary', 'listening', 'reading', 'writing', 'speaking'];
-  return fields.every(field => Array.isArray(obj[field]));
+  // Must have at least one valid array field, and no invalid fields
+  let hasValidField = false;
+  for (const field of fields) {
+    const val = obj[field];
+    if (val !== undefined && val !== null && !Array.isArray(val)) {
+      return false; // Non-array value -> not ResourceHub
+    }
+    if (Array.isArray(val)) {
+      hasValidField = true;
+    }
+  }
+  return hasValidField;
 }
 
 function isChillZoneWrapper(obj: any): boolean {
@@ -48,23 +64,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
-    // Safely get and normalize current data
     let rawCurrentData = await kv.get(ITEM_KEY);
     let currentData: Record<string, any> = {};
 
     if (isPlainObject(rawCurrentData)) {
       currentData = rawCurrentData;
     }
-    // If it's not a plain object (e.g., string, number, array, null, undefined), treat as empty
 
     if (req.method === 'POST') {
       const body = req.body;
-
-      let newData: Record<string, any> = { ...currentData }; // ✅ Now safe!
+      let newData: Record<string, any> = { ...currentData };
 
       if (isPlannerData(body)) {
+        // Only merge date-keyed entries
         for (const [key, value] of Object.entries(body)) {
-          newData[key] = value;
+          if (/^\d{4}-\d{2}-\d{2}$/.test(key)) {
+            newData[key] = value;
+          }
         }
       } else if (isResourceHubData(body)) {
         const categories = ['vocabulary', 'listening', 'reading', 'writing', 'speaking'];
@@ -72,17 +88,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           if (Array.isArray(body[cat])) {
             newData[cat] = body[cat];
           }
+          // If body[cat] is undefined/null, leave existing value untouched
         }
       } else if (isChillZoneWrapper(body)) {
         newData.chillZone = body.chillZone;
       } else if (isChillZoneFlat(body)) {
         newData.chillZone = body;
       } else {
-        // Fallback: shallow merge only if body is plain object
-        if (isPlainObject(body)) {
-          newData = { ...newData, ...body };
-        }
-        // Otherwise ignore malformed body
+        // Unknown structure: do nothing to avoid accidental wipe
+        // Or optionally log for debugging
+        console.warn('Unrecognized sync payload:', body);
+        // Do not merge unknown payloads!
+        // Return early to prevent data loss
+        return res.status(400).json({ error: 'Unrecognized data format' });
       }
 
       await kv.set(ITEM_KEY, newData, { ex: 60 * 60 * 24 * 30 });
