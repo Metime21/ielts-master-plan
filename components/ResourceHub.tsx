@@ -832,13 +832,14 @@ const ResourceHub: React.FC = () => {
         if (res.ok) {
           const data = await res.json();
           if (data && typeof data === 'object') {
-            setResources({
-              vocabulary: Array.isArray(data.vocabulary) ? data.vocabulary : defaultResources.vocabulary,
-              listening: Array.isArray(data.listening) ? data.listening : defaultResources.listening,
-              reading: Array.isArray(data.reading) ? data.reading : defaultResources.reading,
-              writing: Array.isArray(data.writing) ? data.writing : defaultResources.writing,
-              speaking: Array.isArray(data.speaking) ? data.speaking : defaultResources.speaking,
-            });
+            const hubData = data.resourceHub || {};
+setResources({
+  vocabulary: Array.isArray(hubData.vocabulary) ? hubData.vocabulary : defaultResources.vocabulary,
+  listening: Array.isArray(hubData.listening) ? hubData.listening : defaultResources.listening,
+  reading: Array.isArray(hubData.reading) ? hubData.reading : defaultResources.reading,
+  writing: Array.isArray(hubData.writing) ? hubData.writing : defaultResources.writing,
+  speaking: Array.isArray(hubData.speaking) ? hubData.speaking : defaultResources.speaking,
+});
           }
         }
       } catch (err) {
