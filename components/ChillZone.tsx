@@ -40,21 +40,23 @@ const ChillZone: React.FC = () => {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<Partial<Series>>({});
 
-  // 🔄 Load from /api/sync on mount (FIXED)
+// 🔄 Load from /api/sync on mount (FIXED - handle empty array)
 useEffect(() => {
   const loadSyncData = async () => {
     try {
       const res = await fetch('/api/sync');
       if (res.ok) {
         const data = await res.json();
-        // ✅ 更安全的判断：确保 chillZone 存在且 seriesList 是数组
-        if (data?.chillZone?.seriesList && Array.isArray(data.chillZone.seriesList)) {
-          setSeriesList(data.chillZone.seriesList);
-          return; // 成功加载，直接返回
+        const savedList = data?.chillZone?.seriesList;
+
+        // ✅ 只有当 savedList 是非空数组时，才使用它
+        if (Array.isArray(savedList) && savedList.length > 0) {
+          setSeriesList(savedList);
+          return;
         }
       }
-      // 只有 HTTP 请求失败 或 数据结构无效时，才用默认值
-      console.warn('ChillZone data not found or invalid, using defaults');
+      // 如果请求失败、数据缺失、或 seriesList 为空数组 → 用默认值
+      console.warn('No valid ChillZone data found, using defaults');
       setSeriesList(DEFAULT_SERIES);
     } catch (err) {
       console.error('Failed to load ChillZone data:', err);
