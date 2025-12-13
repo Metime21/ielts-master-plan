@@ -50,10 +50,10 @@ useEffect(() => {
         const savedList = data?.chillZone?.seriesList;
 
         // ✅ 只有当 savedList 是非空数组时，才使用它
-        if (Array.isArray(savedList) && savedList.length > 0) {
-          setSeriesList(savedList);
-          return;
-        }
+        if (Array.isArray(savedList)) {
+  setSeriesList(savedList);
+  return;
+}
       }
       // 如果请求失败、数据缺失、或 seriesList 为空数组 → 用默认值
       console.warn('No valid ChillZone data found, using defaults');
@@ -67,31 +67,76 @@ useEffect(() => {
 }, []);
 
   // 💾 Save ONLY chillZone data to /api/sync
-  const saveChillZoneData = async (newSeriesList: Series[]) => {
-    try {
-      // ✅ Send ONLY the chillZone structure — backend auto routes to CHILL_KEY
-      const payload = { chillZone: { seriesList: newSeriesList } };
-      const saveRes = await fetch('/api/sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
+ const saveChillZoneData = async (newSeriesList: Series[]) => {
+  try {
+    // ✅ 直接发送 { seriesList: [...] }，不要包 chillZone
+    const payload = { seriesList: newSeriesList };
+    
+    const saveRes = await fetch('/api/sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
 
-      if (!saveRes.ok) {
-        console.error('Failed to save ChillZone data:', await saveRes.text());
-      }
-    } catch (err) {
-      console.error('Error saving ChillZone sync data:', err);
+    if (!saveRes.ok) {
+      console.error('Failed to save ChillZone data:', await saveRes.text());
     }
-  };
+  } catch (err) {
+    console.error('Error saving ChillZone sync data:', err);
+  }
+};
 
   const startEditing = (series: Series) => {
     setEditingId(series.id);
     setEditForm({ ...series });
    
   };
-
+const handleInputChange = (field: keyof Series, value: string) => {
+  setEditForm(prev => ({ ...prev, [field]: value }));
+};
   const saveEditing = (id: string) => {
+  // 如果是编辑 custom-slot，我们要新增一个条目，而不是覆盖它
+  if (id === 'custom-slot') {
+    const newUrl = editForm.url?.trim();
+    if (!newUrl) {
+      setEditingId(null);
+      return;
+    }
+
+    // 生成新条目
+    let finalTitle = editForm.title || 'Custom Video';
+    let finalDesc = editForm.desc || 'Custom Link';
+    const finalPoster = editForm.poster || DEFAULT_SERIES.find(series => series.id === 'custom-slot')?.poster || '';
+
+    if (!editForm.title) {
+      if (newUrl.includes('bilibili')) finalTitle = "Bilibili Video";
+      else if (newUrl.includes('youtube')) finalTitle = "YouTube Video";
+      else finalTitle = "Web Resource";
+
+      if (!editForm.desc) finalDesc = "Custom Link";
+    }
+
+    const newItem: Series = {
+      id: `custom-${Date.now()}`, // 使用时间戳生成唯一ID
+      title: finalTitle,
+      desc: finalDesc,
+      url: newUrl,
+      poster: finalPoster
+    };
+
+    // 更新列表：用新条目替换 custom-slot 的位置
+    const updatedList = seriesList.map(item =>
+      item.id === 'custom-slot'
+        ? { ...DEFAULT_SERIES.find(series => series.id === 'custom-slot'), ...newItem, id: 'custom-slot' } // 复用 custom-slot 位置，但内容更新
+        : item
+    );
+
+    setSeriesList(updatedList);
+    saveChillZoneData(updatedList); // 同步到后台
+    setEditingId(null);
+    setEditForm({}); // 清空编辑表单状态
+  } else {
+    // 编辑普通条目的逻辑保持不变
     const updatedList = seriesList.map(item => {
       if (item.id === id) {
         let finalTitle = editForm.title || item.title;
@@ -118,14 +163,11 @@ useEffect(() => {
     });
 
     setSeriesList(updatedList);
-    saveChillZoneData(updatedList); // ✅ Sync to backend
+    saveChillZoneData(updatedList); // 同步到后台
     setEditingId(null);
-  };
-
-  const handleInputChange = (field: keyof Series, value: string) => {
-    setEditForm(prev => ({ ...prev, [field]: value }));
-  };
-
+    setEditForm({}); // 清空编辑表单状态
+  }
+};
   return (
     <div className="animate-fade-in max-w-5xl mx-auto">
       <div className="mb-8">
