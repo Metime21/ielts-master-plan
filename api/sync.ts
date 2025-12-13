@@ -73,35 +73,34 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       });
     }
 
-    if (req.method !== 'POST') {
-      return res.status(405).json({ error: 'Method not allowed' });
-    }
-
+    if (req.method === 'POST') {
     const body = req.body;
 
     if (!isPlainObject(body)) {
-      return res.status(400).json({ error: 'Body must be object' });
+        return res.status(400).json({ error: 'Body must be object' });
     }
 
-    // Handle Planner update: keys are dates like "2025-12-13"
-    if (Object.keys(body).some(k => /^\d{4}-\d{2}-\d{2}$/.test(k))) {
-      const current = ((await kv.get(PLANNER_KEY)) as PlannerData | null) || {};
-      await kv.set(PLANNER_KEY, { ...current, ...body }, { ex: 2592000 });
-      return res.json({ ok: true });
-    }
-    
-    // --- 【修正后的 Resource Hub 和 Chill Zone 合并保存逻辑】---
-    
+    // 定义 Resource Hub 的所有类别
     const resourceCategories = ['vocabulary', 'listening', 'reading', 'writing', 'speaking'] as const;
+    
+    // --- 1. 处理 PLANNER 数据更新 (以日期为键) ---
+    const isPlannerUpdate = Object.keys(body).some(k => /^\d{4}-\d{2}-\d{2}$/.test(k));
+    
+    if (isPlannerUpdate) {
+        // Planner 只进行局部更新和写入 PLANNER_KEY
+        const currentPlanner = ((await kv.get(PLANNER_KEY)) as PlannerData | null) || {};
+        await kv.set(PLANNER_KEY, { ...currentPlanner, ...body }, { ex: 2592000 });
+        return res.json({ ok: true });
+    }
 
-    // 检查请求体中是否包含任何 Resource Hub 或 Chill Zone 的数据字段
-    const hasRelevantField = 
+    // --- 2. 处理 RESOURCE HUB / CHILL ZONE 数据更新 ---
+    const isResourceUpdate = 
         resourceCategories.some(cat => Array.isArray(body[cat])) || 
         Array.isArray(body.seriesList); 
 
-    if (hasRelevantField) {
-        // 1. 从 HUB_KEY 读取当前完整数据 (安全读取，避免覆盖)
-        const current = ((await kv.get(HUB_KEY)) as ResourceHubData | null) || {
+    if (isResourceUpdate) {
+        // 从 HUB_KEY 读取当前完整数据 (安全读取，避免覆盖)
+        const currentHub = ((await kv.get(HUB_KEY)) as ResourceHubData | null) || {
             vocabulary: [],
             listening: [],
             reading: [],
@@ -110,27 +109,28 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             seriesList: [], 
         };
 
-        const update = { ...current };
+        const updateHub = { ...currentHub };
 
-        // 2. 用请求体中的数据更新对应的字段 
+        // 用请求体中的数据更新对应的字段 
         for (const cat of resourceCategories) {
             if (Array.isArray(body[cat])) {
-                update[cat] = body[cat]; 
+                updateHub[cat] = body[cat]; 
             }
         }
         
-        // 3. 更新 Chill Zone 数据
+        // 更新 Chill Zone 数据
         if (Array.isArray(body.seriesList)) {
-            update.seriesList = body.seriesList; 
+            updateHub.seriesList = body.seriesList; 
         }
 
-        // 4. 将包含 Chill Zone 在内的完整对象，只写入 HUB_KEY
-        await kv.set(HUB_KEY, update, { ex: 2592000 });
+        // 将完整对象写入 HUB_KEY
+        await kv.set(HUB_KEY, updateHub, { ex: 2592000 });
         return res.json({ ok: true });
     }
     
-    // 如果请求体中不包含任何相关数据，返回错误
-    return res.status(400).json({ error: 'No relevant sync data found in request' });
+    // 如果请求体中不包含任何 Planner 或 Resource/Chill 数据，返回错误
+    return res.status(400).json({ error: 'No recognizable sync data found in request' });
+}
 
   } catch (e) {
     console.error('Sync API error:', e);
