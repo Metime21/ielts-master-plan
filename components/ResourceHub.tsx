@@ -260,11 +260,7 @@ const ResourceCard: React.FC<ResourceCardProps> = ({
     onSave(newItems);
   };
 
-  useEffect(() => {
-    if (!isEditing) {
-      onSave(items);
-    }
-  }, [isEditing]);
+
 
   return (
     <div className="bg-white rounded-2xl overflow-hidden shadow-sm hover:shadow-lg transition-all duration-300 border border-slate-100 flex flex-col h-full group">
@@ -820,14 +816,14 @@ const ResourceHub: React.FC = () => {
     reading: ResourceItem[];
     writing: ResourceItem[];
     speaking: ResourceItem[];
-    seriesList: any[]; // <--- 【修改点 1a】：加入 Chill Zone 字段到类型
+    
   }>({
     vocabulary: defaultResources.vocabulary,
     listening: defaultResources.listening,
     reading: defaultResources.reading,
     writing: defaultResources.writing,
     speaking: defaultResources.speaking,
-    seriesList: [], // <--- 【修改点 1b】：加入 Chill Zone 字段到初始值
+    
   });
 
   // Load from /api/sync on mount (FIXED)
@@ -846,12 +842,7 @@ useEffect(() => {
         reading: Array.isArray(hub?.reading) ? hub.reading : defaultResources.reading,
         writing: Array.isArray(hub?.writing) ? hub.writing : defaultResources.writing,
         speaking: Array.isArray(hub?.speaking) ? hub.speaking : defaultResources.speaking,
-        // 【修改点 2b】：从 hub 或 chill 中加载 seriesList
-        seriesList: Array.isArray(hub?.seriesList) 
-          ? hub.seriesList 
-          : Array.isArray(chill?.seriesList) 
-            ? chill.seriesList 
-            : [],
+        
       });
     } catch (err) {
       console.error('Sync load failed:', err);
@@ -877,28 +868,7 @@ useEffect(() => {
     }
   };
 
-const handleSaveSection = async (category: string, items: ResourceItem[]) => {
-  if (isSaving) return;
-  setIsSaving(true);
 
-  try {
-    // ✅ 只发送当前 category 的数据，比如 { vocabulary: [...] }
-    const payload = { [category]: items };
-
-    const res = await fetch('/api/sync', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-
-    if (!res.ok) throw new Error('Failed to save');
-    setLastSavedTime(new Date());
-  } catch (e) {
-    console.error(`Error saving ${category}:`, e);
-  } finally {
-    setIsSaving(false);
-  }
-};
 
 const handleSaveChillZone = async (seriesList: any[]) => {
   if (isSaving) return;
@@ -939,35 +909,55 @@ const handleSaveChillZone = async (seriesList: any[]) => {
             icon={<Languages size={18} className="text-emerald-700" />}
             headerColor="bg-[#A4C3B2]/30"
             items={resources.vocabulary}
-            onSave={(items) => handleSaveSection('vocabulary', items)}
+            onSave={(updatedItems) => {
+    const newResources = { ...resources, vocabulary: updatedItems };
+    setResources(newResources);
+    saveAllResources(newResources);
+  }}
           />
           <ResourceCard
             title="Listening"
             icon={<Headphones size={18} className="text-blue-700" />}
             headerColor="bg-[#9BB7D4]/30"
             items={resources.listening}
-            onSave={(items) => handleSaveSection('listening', items)}
+            onSave={(updatedItems) => {
+    const newResources = { ...resources, listening: updatedItems };
+    setResources(newResources);
+    saveAllResources(newResources);
+  }}
           />
           <ResourceCard
             title="Reading"
             icon={<BookOpen size={18} className="text-rose-700" />}
             headerColor="bg-[#D4A5A5]/30"
             items={resources.reading}
-            onSave={(items) => handleSaveSection('reading', items)}
+            onSave={(updatedItems) => {
+    const newResources = { ...resources, reading: updatedItems };
+    setResources(newResources);
+    saveAllResources(newResources);
+  }}
           />
           <ResourceCard
             title="Writing"
             icon={<PenTool size={18} className="text-yellow-700" />}
             headerColor="bg-[#EAD18F]/30"
             items={resources.writing}
-            onSave={(items) => handleSaveSection('writing', items)}
+            onSave={(updatedItems) => {
+    const newResources = { ...resources, writing: updatedItems };
+    setResources(newResources);
+    saveAllResources(newResources);
+  }}
           />
           <ResourceCard
             title="Speaking"
             icon={<Mic size={18} className="text-orange-700" />}
             headerColor="bg-[#E6B89C]/30"
             items={resources.speaking}
-            onSave={(items) => handleSaveSection('speaking', items)}
+            onSave={(updatedItems) => {
+    const newResources = { ...resources, speaking: updatedItems };
+    setResources(newResources);
+    saveAllResources(newResources);
+  }}
           />
         </div>
         {/* --- RIGHT: Tools Column (4 Cols) --- */}
