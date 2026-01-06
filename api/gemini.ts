@@ -2,7 +2,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 
 const DASHSCOPE_API_KEY = process.env.DASHSCOPE_API_KEY;
-const MODEL = 'qwen-max';
+const MODEL = 'qwen3-max';
 
 if (!DASHSCOPE_API_KEY) {
   console.error('[FATAL] DASHSCOPE_API_KEY is missing');
