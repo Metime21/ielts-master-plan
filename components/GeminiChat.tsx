@@ -1,14 +1,88 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Send, Sparkles, X, Plus } from 'lucide-react';
-import { ChatMessage } from '../types';
 import { generateGeminiResponse } from '../services/geminiService';
+
+type ConversationMessage = {
+  role: 'user' | 'assistant';
+  content: string;
+};
 
 type Conversation = {
   id: string;
   title: string;
   createdAt: number;
-  messages: { role: 'user' | 'assistant'; content: string }[];
+  messages: ConversationMessage[];
 };
+
+const STORAGE_KEY = 'ielts-conversations';
+const MAX_CONVERSATIONS = 7;
+
+const SYSTEM_INSTRUCTION = `
+You are a Cambridge IELTS examiner. Always:
+1. Respond in English first.
+2. Then write exactly: "中文翻译:" followed by a natural Chinese translation.
+3. For essays: assess TR, CC, LR, GRA; give a realistic band score; highlight 2-3 weaknesses; rewrite up to 2 sentences to Band 9.
+4. For grammar: quote error, explain type, correct it, optionally upgrade.
+5. For speaking: provide ideas, vocabulary, sample answers.
+No markdown. No mixed languages. Keep under 600 words.
+`;
+
+const isConversationArray = (value: unknown): value is Conversation[] => {
+  if (!Array.isArray(value)) {
+    return false;
+  }
+
+  return value.every((item) => {
+    if (!item || typeof item !== 'object') {
+      return false;
+    }
+
+    const candidate = item as Conversation;
+    return (
+      typeof candidate.id === 'string' &&
+      typeof candidate.title === 'string' &&
+      typeof candidate.createdAt === 'number' &&
+      Array.isArray(candidate.messages) &&
+      candidate.messages.every(
+        (message) =>
+          message &&
+          typeof message === 'object' &&
+          (message.role === 'user' || message.role === 'assistant') &&
+          typeof message.content === 'string'
+      )
+    );
+  });
+};
+
+const loadStoredConversations = (): Conversation[] => {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) {
+      return [];
+    }
+
+    const parsed = JSON.parse(raw);
+    return isConversationArray(parsed) ? parsed : [];
+  } catch (error) {
+    console.warn('Failed to parse saved conversations:', error);
+    return [];
+  }
+};
+
+const persistConversations = (conversations: Conversation[]) => {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(conversations));
+  } catch (error) {
+    console.warn('Failed to save conversations:', error);
+  }
+};
+
+const createConversationRecord = (): Conversation => ({
+  id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+  title: 'New Chat',
+  createdAt: Date.now(),
+  messages: [],
+});
 
 const GeminiChat: React.FC = () => {
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -16,77 +90,76 @@ const GeminiChat: React.FC = () => {
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
+  const [hasLoadedConversations, setHasLoadedConversations] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
 
-  // 初始化对话
-  useEffect(() => {
-    const saved = localStorage.getItem('ielts-conversations');
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        setConversations(parsed);
-        if (parsed.length > 0) {
-          setCurrentConvId(parsed[0].id);
-        }
-      } catch (e) {
-        console.warn('Failed to parse saved conversations');
-      }
-    }
-    if (!saved || !JSON.parse(saved).length) {
-      createNewConversation();
-    }
-  }, []);
-
-  useEffect(() => {
-    if (conversations.length > 0) {
-      localStorage.setItem('ielts-conversations', JSON.stringify(conversations));
-    }
-  }, [conversations]);
+  const currentConv = conversations.find((conversation) => conversation.id === currentConvId);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
-  useEffect(() => {
-    if (isOpen) {
-      scrollToBottom();
-    }
-  }, [isOpen]);
-
-  const SYSTEM_INSTRUCTION = `
-You are a Cambridge IELTS examiner. Always:
-1. Respond in English first.
-2. Then write exactly: "中文翻译:" followed by a natural Chinese translation.
-3. For essays: assess TR, CC, LR, GRA; give a realistic band score; highlight 2–3 weaknesses; rewrite up to 2 sentences to Band 9.
-4. For grammar: quote error, explain type, correct it, optionally upgrade.
-5. For speaking: provide ideas, vocabulary, sample answers.
-No markdown. No mixed languages. Keep under 600 words.
-`;
-
-  const smartTrimContext = (messages: { role: string; content: string }[]) => {
+  const smartTrimContext = (messages: ConversationMessage[]) => {
     return messages.length > 4 ? messages.slice(-4) : messages;
   };
 
   const createNewConversation = () => {
-    const newConv: Conversation = {
-      id: Date.now().toString(),
-      title: 'New Chat',
-      createdAt: Date.now(),
-      messages: [],
-    };
-    const updated = [newConv, ...conversations].slice(0, 7);
-    setConversations(updated);
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+
+    const newConv = createConversationRecord();
+    setConversations((prev) => [newConv, ...prev].slice(0, MAX_CONVERSATIONS));
     setCurrentConvId(newConv.id);
     setInput('');
+    setIsTyping(false);
   };
 
+  useEffect(() => {
+    const savedConversations = loadStoredConversations();
+
+    if (savedConversations.length > 0) {
+      setConversations(savedConversations);
+      setCurrentConvId(savedConversations[0].id);
+    } else {
+      const newConv = createConversationRecord();
+      setConversations([newConv]);
+      setCurrentConvId(newConv.id);
+    }
+
+    setHasLoadedConversations(true);
+  }, []);
+
+  useEffect(() => {
+    if (!hasLoadedConversations) {
+      return;
+    }
+
+    persistConversations(conversations);
+  }, [conversations, hasLoadedConversations]);
+
+  useEffect(() => {
+    if (isOpen) {
+      scrollToBottom();
+    }
+  }, [isOpen, currentConvId, conversations, isTyping]);
+
   const handleSend = async () => {
-    if (!input.trim() || isTyping || !currentConvId) return;
+    if (!input.trim() || isTyping || !currentConvId) {
+      return;
+    }
+
+    const activeConversation = conversations.find((conversation) => conversation.id === currentConvId);
+    if (!activeConversation) {
+      return;
+    }
 
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
     }
+
     const controller = new AbortController();
     abortControllerRef.current = controller;
 
@@ -94,12 +167,9 @@ No markdown. No mixed languages. Keep under 600 words.
     setInput('');
     setIsTyping(true);
 
-    const currentConv = conversations.find(c => c.id === currentConvId);
-    if (!currentConv) return;
-
     try {
       const contextForAI = smartTrimContext([
-        ...currentConv.messages,
+        ...activeConversation.messages,
         { role: 'user', content: userText },
       ]);
 
@@ -109,53 +179,70 @@ No markdown. No mixed languages. Keep under 600 words.
         controller.signal
       );
 
-      if (controller.signal.aborted) return;
+      if (controller.signal.aborted) {
+        return;
+      }
 
       const newTitle =
-        currentConv.title === 'New Chat'
+        activeConversation.title === 'New Chat'
           ? `${userText.substring(0, 20)}${userText.length > 20 ? '...' : ''}`
-          : currentConv.title;
+          : activeConversation.title;
 
-      const updatedMessages = [
-        ...currentConv.messages,
+      const updatedMessages: ConversationMessage[] = [
+        ...activeConversation.messages,
         { role: 'user', content: userText },
         { role: 'assistant', content: responseText },
       ];
 
       const updatedConv: Conversation = {
-        ...currentConv,
+        ...activeConversation,
         title: newTitle,
         messages: updatedMessages,
       };
 
-      setConversations(prev =>
-        prev.map(c => (c.id === currentConvId ? updatedConv : c))
+      setConversations((prev) =>
+        prev.map((conversation) =>
+          conversation.id === currentConvId ? updatedConv : conversation
+        )
       );
-    } catch (error: any) {
-      if (error.name === 'AbortError') return;
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        return;
+      }
 
       console.error('GeminiChat Error:', error);
 
+      const message =
+        error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+
       let errorMsgText = 'Oops! Something went wrong. Please try again.';
-      if (error.message?.includes('timed out')) {
+      if (message.includes('timed out')) {
         errorMsgText =
           'The AI is taking longer than expected. This is normal for full essay analysis with qwen-max. Please wait up to 45 seconds, or check your internet connection.';
-      } else if (error.message?.includes('network')) {
+      } else if (message.includes('network')) {
         errorMsgText = 'Network error. Please check your connection and try again.';
+      } else if (message.includes('proxy failed')) {
+        errorMsgText = 'The AI service is temporarily unavailable. Please try again in a moment.';
       }
 
       const updatedConv: Conversation = {
-        ...currentConv,
+        ...activeConversation,
         messages: [
-          ...currentConv.messages,
+          ...activeConversation.messages,
           { role: 'user', content: userText },
           { role: 'assistant', content: errorMsgText },
         ],
       };
-      setConversations(prev =>
-        prev.map(c => (c.id === currentConvId ? updatedConv : c))
+
+      setConversations((prev) =>
+        prev.map((conversation) =>
+          conversation.id === currentConvId ? updatedConv : conversation
+        )
       );
     } finally {
+      if (abortControllerRef.current === controller) {
+        abortControllerRef.current = null;
+      }
       setIsTyping(false);
     }
   };
@@ -168,14 +255,10 @@ No markdown. No mixed languages. Keep under 600 words.
     };
   }, []);
 
-  const currentConv = conversations.find(c => c.id === currentConvId);
-
-  // ✅ 修复：仅在 isOpen 时渲染全屏覆盖层
   if (isOpen) {
     return (
       <div className="fixed inset-0 z-50 flex justify-end">
         <div className="flex w-full max-w-4xl h-[90vh] mt-6 mr-6">
-          {/* 左侧：最近对话 */}
           <div className="w-64 bg-gray-50 border-r border-gray-200 rounded-l-2xl overflow-hidden flex flex-col">
             <button
               onClick={createNewConversation}
@@ -185,7 +268,7 @@ No markdown. No mixed languages. Keep under 600 words.
               New Chat
             </button>
             <div className="flex-1 overflow-y-auto py-2 space-y-1">
-              {conversations.map(conv => (
+              {conversations.map((conv) => (
                 <button
                   key={conv.id}
                   onClick={() => setCurrentConvId(conv.id)}
@@ -201,7 +284,6 @@ No markdown. No mixed languages. Keep under 600 words.
             </div>
           </div>
 
-          {/* 右侧：主聊天窗口 */}
           <div className="flex-1 bg-white rounded-r-2xl shadow-2xl flex flex-col">
             <div className="bg-academic-800 p-4 flex items-center justify-between text-white">
               <div className="flex items-center gap-2">
@@ -285,7 +367,6 @@ No markdown. No mixed languages. Keep under 600 words.
     );
   }
 
-  // ✅ 关闭状态：只渲染悬浮按钮，不占用全屏
   return (
     <button
       onClick={() => setIsOpen(true)}
