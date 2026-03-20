@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { PlayCircle, Music, Film, Edit, Check, Plus, ExternalLink } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { PlayCircle, Music, Film, Edit, Check, Plus } from 'lucide-react';
 
 interface Series {
   id: string;
@@ -16,158 +16,229 @@ const DEFAULT_SERIES: Series[] = [
     title: 'Modern Family',
     desc: 'Shadowing Practice • Daily Life Vocab',
     url: 'https://www.bilibili.com/video/BV1vfFye3E1s/?spm_id_from=333.1387.favlist.content.click&vd_source=1e206dd35c34dcc28320db7fcfbfa95e',
-    poster: 'https://images.unsplash.com/photo-1511895426328-dc8714191300?q=80&w=2070&auto=format&fit=crop'
+    poster:
+      'https://images.unsplash.com/photo-1511895426328-dc8714191300?q=80&w=2070&auto=format&fit=crop',
   },
   {
     id: 'friends',
     title: 'Friends',
     desc: 'Classic American Idioms • Humor',
     url: 'https://www.bilibili.com/video/BV1phynYEEBx/?spm_id_from=333.1387.favlist.content.click&vd_source=1e206dd35c34dcc28320db7fcfbfa95e',
-    poster: 'https://image.tmdb.org/t/p/original/f496cm9enuEsZkSPzCwnTESEK5s.jpg'
+    poster: 'https://image.tmdb.org/t/p/original/f496cm9enuEsZkSPzCwnTESEK5s.jpg',
   },
   {
     id: 'custom-slot',
     title: 'Add New Series',
     desc: 'Click edit to add your link',
     url: '',
-    poster: 'https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?q=80&w=2070&auto=format&fit=crop',
-    isCustom: true
-  }
+    poster:
+      'https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?q=80&w=2070&auto=format&fit=crop',
+    isCustom: true,
+  },
 ];
+
+const CHILL_ZONE_BACKUP_KEY = 'chillZoneLocalBackup';
+
+const isSeries = (value: unknown): value is Series => {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+
+  const candidate = value as Series;
+  return (
+    typeof candidate.id === 'string' &&
+    typeof candidate.title === 'string' &&
+    typeof candidate.desc === 'string' &&
+    typeof candidate.url === 'string' &&
+    typeof candidate.poster === 'string'
+  );
+};
+
+const loadLocalBackup = (): Series[] | null => {
+  try {
+    const raw = localStorage.getItem(CHILL_ZONE_BACKUP_KEY);
+    if (!raw) {
+      return null;
+    }
+
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) && parsed.every(isSeries) && parsed.length > 0 ? parsed : null;
+  } catch (error) {
+    console.warn('Failed to load ChillZone local backup:', error);
+    return null;
+  }
+};
+
+const saveLocalBackup = (seriesList: Series[]) => {
+  try {
+    localStorage.setItem(CHILL_ZONE_BACKUP_KEY, JSON.stringify(seriesList));
+  } catch (error) {
+    console.warn('Failed to save ChillZone local backup:', error);
+  }
+};
 
 const ChillZone: React.FC = () => {
   const [seriesList, setSeriesList] = useState<Series[]>(DEFAULT_SERIES);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<Partial<Series>>({});
 
-// 🔄 Load from /api/sync on mount (FIXED - handle empty array)
-useEffect(() => {
-  const loadSyncData = async () => {
-    try {
-      const res = await fetch('/api/sync');
-      if (res.ok) {
+  useEffect(() => {
+    const loadSyncData = async () => {
+      const localBackup = loadLocalBackup();
+
+      try {
+        const res = await fetch('/api/sync', { cache: 'no-store' });
+        if (!res.ok) {
+          throw new Error('Failed to load ChillZone data');
+        }
+
         const data = await res.json();
         const savedList = data?.chillZone?.seriesList;
 
-        // ✅ 只有当 savedList 是非空数组时，才使用它
-        if (Array.isArray(savedList)) {
-  setSeriesList(savedList);
-  return;
-}
+        if (Array.isArray(savedList) && savedList.every(isSeries) && savedList.length > 0) {
+          setSeriesList(savedList);
+          saveLocalBackup(savedList);
+          return;
+        }
+
+        if (localBackup) {
+          setSeriesList(localBackup);
+          return;
+        }
+
+        setSeriesList(DEFAULT_SERIES);
+      } catch (error) {
+        console.error('Failed to load ChillZone data:', error);
+
+        if (localBackup) {
+          setSeriesList(localBackup);
+          return;
+        }
+
+        setSeriesList(DEFAULT_SERIES);
       }
-      // 如果请求失败、数据缺失、或 seriesList 为空数组 → 用默认值
-      console.warn('No valid ChillZone data found, using defaults');
-      setSeriesList(DEFAULT_SERIES);
-    } catch (err) {
-      console.error('Failed to load ChillZone data:', err);
-      setSeriesList(DEFAULT_SERIES);
+    };
+
+    void loadSyncData();
+  }, []);
+
+  const saveChillZoneData = async (newSeriesList: Series[]) => {
+    saveLocalBackup(newSeriesList);
+
+    try {
+      const payload = { seriesList: newSeriesList };
+
+      const saveRes = await fetch('/api/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      if (!saveRes.ok) {
+        console.error('Failed to save ChillZone data:', await saveRes.text());
+      }
+    } catch (error) {
+      console.error('Error saving ChillZone sync data:', error);
     }
   };
-  loadSyncData();
-}, []);
-
-  // 💾 Save ONLY chillZone data to /api/sync
- const saveChillZoneData = async (newSeriesList: Series[]) => {
-  try {
-    // ✅ 直接发送 { seriesList: [...] }，不要包 chillZone
-    const payload = { seriesList: newSeriesList };
-    
-    const saveRes = await fetch('/api/sync', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
-
-    if (!saveRes.ok) {
-      console.error('Failed to save ChillZone data:', await saveRes.text());
-    }
-  } catch (err) {
-    console.error('Error saving ChillZone sync data:', err);
-  }
-};
 
   const startEditing = (series: Series) => {
     setEditingId(series.id);
     setEditForm({ ...series });
-   
   };
-const handleInputChange = (field: keyof Series, value: string) => {
-  setEditForm(prev => ({ ...prev, [field]: value }));
-};
+
+  const handleInputChange = (field: keyof Series, value: string) => {
+    setEditForm((prev) => ({ ...prev, [field]: value }));
+  };
+
   const saveEditing = (id: string) => {
-  // 如果是编辑 custom-slot，我们要新增一个条目，而不是覆盖它
-  if (id === 'custom-slot') {
-    const newUrl = editForm.url?.trim();
-    if (!newUrl) {
+    if (id === 'custom-slot') {
+      const newUrl = editForm.url?.trim();
+      if (!newUrl) {
+        setEditingId(null);
+        setEditForm({});
+        return;
+      }
+
+      let finalTitle = editForm.title || 'Custom Video';
+      let finalDesc = editForm.desc || 'Custom Link';
+      const defaultPoster =
+        DEFAULT_SERIES.find((series) => series.id === 'custom-slot')?.poster || '';
+      const finalPoster = editForm.poster || defaultPoster;
+
+      if (!editForm.title) {
+        if (newUrl.includes('bilibili')) {
+          finalTitle = 'Bilibili Video';
+        } else if (newUrl.includes('youtube')) {
+          finalTitle = 'YouTube Video';
+        } else {
+          finalTitle = 'Web Resource';
+        }
+
+        if (!editForm.desc) {
+          finalDesc = 'Custom Link';
+        }
+      }
+
+      const newItem: Series = {
+        id: 'custom-slot',
+        title: finalTitle,
+        desc: finalDesc,
+        url: newUrl,
+        poster: finalPoster,
+      };
+
+      const updatedList = seriesList.map((item) =>
+        item.id === 'custom-slot' ? newItem : item
+      );
+
+      setSeriesList(updatedList);
+      void saveChillZoneData(updatedList);
       setEditingId(null);
+      setEditForm({});
       return;
     }
 
-    // 生成新条目
-    let finalTitle = editForm.title || 'Custom Video';
-    let finalDesc = editForm.desc || 'Custom Link';
-    const finalPoster = editForm.poster || DEFAULT_SERIES.find(series => series.id === 'custom-slot')?.poster || '';
+    const updatedList = seriesList.map((item) => {
+      if (item.id !== id) {
+        return item;
+      }
 
-    if (!editForm.title) {
-      if (newUrl.includes('bilibili')) finalTitle = "Bilibili Video";
-      else if (newUrl.includes('youtube')) finalTitle = "YouTube Video";
-      else finalTitle = "Web Resource";
+      let finalTitle = editForm.title || item.title;
+      let finalDesc = editForm.desc || item.desc;
+      const finalPoster = editForm.poster || item.poster;
+      const finalUrl = editForm.url ?? item.url;
 
-      if (!editForm.desc) finalDesc = "Custom Link";
-    }
-
-    const newItem: Series = {
-      id: `custom-${Date.now()}`, // 使用时间戳生成唯一ID
-      title: finalTitle,
-      desc: finalDesc,
-      url: newUrl,
-      poster: finalPoster
-    };
-
-    // 更新列表：用新条目替换 custom-slot 的位置
-    const updatedList = seriesList.map(item =>
-      item.id === 'custom-slot'
-        ? { ...DEFAULT_SERIES.find(series => series.id === 'custom-slot'), ...newItem, id: 'custom-slot' } // 复用 custom-slot 位置，但内容更新
-        : item
-    );
-
-    setSeriesList(updatedList);
-    saveChillZoneData(updatedList); // 同步到后台
-    setEditingId(null);
-    setEditForm({}); // 清空编辑表单状态
-  } else {
-    // 编辑普通条目的逻辑保持不变
-    const updatedList = seriesList.map(item => {
-      if (item.id === id) {
-        let finalTitle = editForm.title || item.title;
-        let finalDesc = editForm.desc || item.desc;
-        const finalPoster = editForm.poster || item.poster;
-
-        if (!editForm.title && editForm.url) {
-          if (editForm.url.includes('bilibili')) finalTitle = "Bilibili Video";
-          else if (editForm.url.includes('youtube')) finalTitle = "YouTube Video";
-          else finalTitle = "Web Resource";
-
-          if (!editForm.desc) finalDesc = "Custom Link";
+      if (!editForm.title && finalUrl) {
+        if (finalUrl.includes('bilibili')) {
+          finalTitle = 'Bilibili Video';
+        } else if (finalUrl.includes('youtube')) {
+          finalTitle = 'YouTube Video';
+        } else {
+          finalTitle = 'Web Resource';
         }
 
-        return {
-          ...item,
-          ...editForm,
-          title: finalTitle,
-          desc: finalDesc,
-          poster: finalPoster
-        } as Series;
+        if (!editForm.desc) {
+          finalDesc = 'Custom Link';
+        }
       }
-      return item;
+
+      return {
+        ...item,
+        ...editForm,
+        url: finalUrl,
+        title: finalTitle,
+        desc: finalDesc,
+        poster: finalPoster,
+      };
     });
 
     setSeriesList(updatedList);
-    saveChillZoneData(updatedList); // 同步到后台
+    void saveChillZoneData(updatedList);
     setEditingId(null);
-    setEditForm({}); // 清空编辑表单状态
-  }
-};
+    setEditForm({});
+  };
+
   return (
     <div className="animate-fade-in max-w-5xl mx-auto">
       <div className="mb-8">
@@ -176,14 +247,15 @@ const handleInputChange = (field: keyof Series, value: string) => {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-12 gap-8">
-        {/* TV Series Card */}
         <div className="md:col-span-8 bg-white rounded-3xl shadow-lg border border-slate-100 overflow-hidden flex flex-col">
           <div className="px-6 py-4 bg-academic-800 text-white flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Film size={20} className="text-accent-400" />
               <h3 className="font-bold text-lg">TV Series Collection</h3>
             </div>
-            <span className="text-xs bg-white/10 px-2 py-1 rounded text-slate-200">3 Slots Available</span>
+            <span className="text-xs bg-white/10 px-2 py-1 rounded text-slate-200">
+              3 Slots Available
+            </span>
           </div>
 
           <div className="flex-1 grid grid-cols-1 sm:grid-cols-3 divide-y sm:divide-y-0 sm:divide-x divide-slate-100 h-full min-h-[300px]">
@@ -191,7 +263,7 @@ const handleInputChange = (field: keyof Series, value: string) => {
               <div key={series.id} className="relative group h-full flex flex-col">
                 <div className="absolute inset-0 bg-slate-800">
                   <img
-                    src={editingId === series.id ? editForm.poster : series.poster}
+                    src={editingId === series.id ? editForm.poster || series.poster : series.poster}
                     alt={series.title}
                     className="w-full h-full object-cover opacity-50 group-hover:opacity-40 transition-opacity"
                   />
@@ -246,7 +318,11 @@ const handleInputChange = (field: keyof Series, value: string) => {
                     </div>
                   ) : (
                     <div className="mt-auto">
-                      <h4 className={`font-bold text-white leading-tight mb-1 ${series.title.length > 15 ? 'text-lg' : 'text-xl'}`}>
+                      <h4
+                        className={`font-bold text-white leading-tight mb-1 ${
+                          series.title.length > 15 ? 'text-lg' : 'text-xl'
+                        }`}
+                      >
                         {series.title}
                       </h4>
                       <p className="text-xs text-slate-300 line-clamp-2 mb-4">{series.desc}</p>
@@ -275,7 +351,6 @@ const handleInputChange = (field: keyof Series, value: string) => {
           </div>
         </div>
 
-        {/* Music Card */}
         <div className="md:col-span-4 flex flex-col">
           <a
             href="https://www.voicetube.com/channel/music"
