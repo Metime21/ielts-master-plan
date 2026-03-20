@@ -1,60 +1,78 @@
-// src/services/geminiService.ts
-
 type ChatMessage = { role: 'user' | 'assistant'; content: string };
 
-/**
- * 调用本地代理接口 /api/gemini
- * 支持 AbortSignal 用于取消请求（提升交互稳定性）
- */
+interface GeminiProxyResponse {
+  candidates?: Array<{
+    content?: {
+      parts?: Array<{
+        text?: string;
+      }>;
+    };
+  }>;
+}
+
+const isAbortError = (error: unknown): boolean =>
+  error instanceof DOMException
+    ? error.name === 'AbortError'
+    : error instanceof Error && error.name === 'AbortError';
+
+const extractTextFromProxyResponse = (data: GeminiProxyResponse): string => {
+  const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+
+  if (typeof text !== 'string' || text.trim().length === 0) {
+    throw new Error('AI returned empty or malformed response.');
+  }
+
+  return text.trim();
+};
+
 const fetchGeminiProxy = async (
   payload: {
     messages: ChatMessage[];
     systemInstruction?: string;
   },
   signal?: AbortSignal
-): Promise<any> => {
-  const response = await fetch('/api/gemini', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(payload),
-    signal, // ✅ 透传 AbortSignal
-  });
+): Promise<GeminiProxyResponse> => {
+  let response: Response;
+
+  try {
+    response = await fetch('/api/gemini', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+      signal,
+    });
+  } catch (error) {
+    if (isAbortError(error)) {
+      throw error;
+    }
+
+    throw new Error('Network error. Please check your connection and try again.');
+  }
 
   if (!response.ok) {
-    // 尝试解析详细错误
-    let errorDetail = response.statusText;
+    let errorDetail = response.statusText || 'Unknown error';
+
     try {
       const errorData = await response.json();
-      errorDetail = errorData.error || errorData.details || response.statusText;
+      errorDetail = errorData.error || errorData.details || errorDetail;
     } catch {
-      // fallback to status text
+      // Fall back to the HTTP status text.
     }
 
     throw new Error(`Proxy failed (${response.status}): ${errorDetail}`);
   }
 
-  const data = await response.json();
-
-  if (!data.candidates?.[0]?.content?.parts?.[0]?.text) {
-    throw new Error('AI returned empty or malformed response');
-  }
-
+  const data = (await response.json()) as GeminiProxyResponse;
+  extractTextFromProxyResponse(data);
   return data;
 };
 
-/**
- * 生成 AI 响应
- *
- * 支持两种调用方式：
- * 1. generateGeminiResponse(prompt: string, systemInstruction?, signal?)
- * 2. generateGeminiResponse(messages: ChatMessage[], systemInstruction?, signal?)
- */
 export const generateGeminiResponse = async (
   input: string | ChatMessage[],
   systemInstruction?: string,
-  signal?: AbortSignal // ✅ 新增可选 signal
+  signal?: AbortSignal
 ): Promise<string> => {
   let messages: ChatMessage[];
 
@@ -63,37 +81,27 @@ export const generateGeminiResponse = async (
   } else if (Array.isArray(input)) {
     messages = input;
   } else {
-    console.error('[geminiService] Invalid input type:', input);
     throw new Error('Invalid input to generateGeminiResponse: must be string or ChatMessage[]');
   }
 
   try {
     const payload = { messages, systemInstruction };
     const jsonResponse = await fetchGeminiProxy(payload, signal);
-    const text = jsonResponse.candidates[0].content.parts[0].text;
-
-    if (!text || typeof text !== 'string' || text.trim().length === 0) {
-      console.warn('AI returned empty or invalid response:', jsonResponse);
-      return "Sorry, I couldn't generate a meaningful response. Please try rephrasing your question.";
-    }
-
-    return text.trim();
+    return extractTextFromProxyResponse(jsonResponse);
   } catch (error) {
-    if (error instanceof DOMException && error.name === 'AbortError') {
-      // 被主动取消（如用户发新消息）
-      throw error; // 让调用方决定是否忽略
+    if (isAbortError(error)) {
+      throw error;
     }
 
     console.error('Gemini Proxy Call Error:', error);
-    const msg = error instanceof Error ? error.message : String(error);
-    return `AI service error: ${msg}`;
+    throw error instanceof Error ? error : new Error(String(error));
   }
 };
 
-/**
- * 字典查询专用函数（单轮，不支持取消）
- */
-export const translateAndDefine = async (word: string): Promise<string> => {
+export const translateAndDefine = async (
+  word: string,
+  signal?: AbortSignal
+): Promise<string> => {
   const prompt = `
 You are an expert IELTS dictionary assistant. Provide a concise answer in Markdown format for the word: "${word}".
 
@@ -107,17 +115,5 @@ Include:
 Keep it clean and structured.
 `;
 
-  try {
-    // 字典查询通常很短，不需要取消
-    const responseText = await generateGeminiResponse(prompt, "Be accurate, concise, and helpful.");
-    
-    if (!responseText || responseText.trim().length === 0) {
-      return "Definition search failed. The AI returned no content. Please try again.";
-    }
-
-    return responseText;
-  } catch (error) {
-    console.error("TranslateAndDefine Error:", error);
-    return "Definition search failed. Please check your API connection or try again.";
-  }
+  return generateGeminiResponse(prompt, 'Be accurate, concise, and helpful.', signal);
 };
