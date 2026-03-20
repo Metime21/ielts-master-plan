@@ -1,5 +1,4 @@
 import React, { useState, useRef, useEffect } from 'react';
-import ChillZoneCard from './chillzone';
 import {
   ExternalLink,
   FileText,
@@ -21,10 +20,67 @@ import {
   Check,
   LinkIcon,
 } from 'lucide-react';
+import { generateGeminiResponse } from '../services/geminiService';
 
-// --- API Helper Function (Fixed: Match Qwen API Format) ---
-const translateAndDefine = async (text: string): Promise<string> => {
-  const prompt = `You are a professional IELTS English dictionary. For the word or phrase "${text}", provide ONLY the following information in EXACTLY this format with NO extra text, explanations, greetings, or markdown:
+interface ResourceItem {
+  name: string;
+  url?: string;
+  isUpload?: boolean;
+  note?: string;
+}
+
+interface ResourceCollections {
+  vocabulary: ResourceItem[];
+  listening: ResourceItem[];
+  reading: ResourceItem[];
+  writing: ResourceItem[];
+  speaking: ResourceItem[];
+}
+
+interface StoredUploadRecord {
+  id: string;
+  title: string;
+  name: string;
+  file: Blob;
+  updatedAt: number;
+}
+
+interface UploadFileView {
+  id: string;
+  name: string;
+  url: string;
+}
+
+const RESOURCE_UPLOAD_DB = 'ielts-master-plan';
+const RESOURCE_UPLOAD_STORE = 'resource-uploads';
+const RESOURCE_LOCAL_BACKUP_KEY = 'resourceHubLocalBackup';
+const DICTIONARY_HISTORY_KEY = 'resourceHubDictionaryHistory';
+
+const DEFAULT_RESOURCES: ResourceCollections = {
+  vocabulary: [
+    { name: 'YouGlish', url: 'https://youglish.com', note: 'Contextual Pronunciation' },
+    { name: 'BuBeiDan (App)', note: 'App Recommendation' },
+    { name: 'Vocabulary Lists (PDF)', isUpload: true },
+  ],
+  listening: [
+    { name: 'BBC Learning English', url: 'https://www.youtube.com/@bbclearningenglish/videos', note: 'Global News & Accents' },
+    { name: 'VoiceTube', url: 'https://www.voicetube.com/channels/business-and-finance?sortBy=publishedAt&page=1', note: 'Video Dictionary' },
+    { name: 'Cambridge Listening Practice', isUpload: true },
+  ],
+  reading: [{ name: 'Cambridge 11-19 Papers', isUpload: true }],
+  writing: [
+    { name: 'Simon IELTS', url: 'https://www.bilibili.com/video/BV1fhghzZE8a/', note: 'Band 9 Structures' },
+    { name: 'IELTS Liz Essays', url: 'https://ieltsliz.com/ielts-writing-task-2/', note: 'Model Answers' },
+  ],
+  speaking: [
+    { name: 'English with Lucy', url: 'https://www.youtube.com/@EnglishwithLucy', note: 'British Pronunciation' },
+    { name: 'IELTS Liz Tips', url: 'https://ieltsliz.com/ielts-speaking-free-lessons-essential-tips/', note: 'Part 1, 2, 3 Strategy' },
+  ],
+};
+
+const DICTIONARY_SYSTEM_INSTRUCTION = 'You are an expert IELTS vocabulary assistant.';
+
+const buildDictionaryPrompt = (text: string) => `You are a professional IELTS English dictionary. For the word or phrase "${text}", provide ONLY the following information in EXACTLY this format with NO extra text, explanations, greetings, or markdown:
 **Part of Speech:** [pos]
 **Pronunciation:** [ipa]
 **Definition:** [definition]
@@ -40,71 +96,273 @@ Rules:
 - Each field must appear on its own line starting exactly with "**Field Name:**".
 - Do not use bullet points, numbering, or extra spacing.`;
 
-  try {
-    const fetchResponse = await fetch('/api/gemini', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        messages: [{ role: 'user', content: prompt }],
-        systemInstruction: 'You are an expert IELTS vocabulary assistant.',
-      }),
-    });
-
-    if (!fetchResponse.ok) {
-      throw new Error(`API Proxy Error: ${fetchResponse.statusText}`);
+const openUploadDatabase = (): Promise<IDBDatabase> =>
+  new Promise((resolve, reject) => {
+    if (typeof window === 'undefined' || !('indexedDB' in window)) {
+      reject(new Error('IndexedDB is not available'));
+      return;
     }
 
-    const data = await fetchResponse.json();
-    const resultText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-    return resultText || 'No definition returned.';
+    const request = window.indexedDB.open(RESOURCE_UPLOAD_DB, 1);
+
+    request.onerror = () => reject(request.error || new Error('Failed to open upload database'));
+    request.onsuccess = () => resolve(request.result);
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(RESOURCE_UPLOAD_STORE)) {
+        const store = db.createObjectStore(RESOURCE_UPLOAD_STORE, { keyPath: 'id' });
+        store.createIndex('title', 'title', { unique: false });
+      }
+    };
+  });
+
+const withUploadStore = async <T,>(
+  mode: IDBTransactionMode,
+  action: (store: IDBObjectStore) => Promise<T>
+): Promise<T> => {
+  const db = await openUploadDatabase();
+
+  try {
+    const transaction = db.transaction(RESOURCE_UPLOAD_STORE, mode);
+    const store = transaction.objectStore(RESOURCE_UPLOAD_STORE);
+    const result = await action(store);
+
+    await new Promise<void>((resolve, reject) => {
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error || new Error('Upload transaction failed'));
+      transaction.onabort = () => reject(transaction.error || new Error('Upload transaction aborted'));
+    });
+
+    return result;
+  } finally {
+    db.close();
+  }
+};
+
+const loadStoredUploadRecords = async (title: string): Promise<StoredUploadRecord[]> =>
+  withUploadStore('readonly', (store) => {
+    const index = store.index('title');
+
+    return new Promise((resolve, reject) => {
+      const request = index.getAll(title);
+      request.onerror = () => reject(request.error || new Error('Failed to load stored uploads'));
+      request.onsuccess = () => {
+        const result = Array.isArray(request.result) ? (request.result as StoredUploadRecord[]) : [];
+        result.sort((a, b) => a.updatedAt - b.updatedAt);
+        resolve(result);
+      };
+    });
+  });
+
+const saveStoredUploadRecord = async (title: string, file: File): Promise<void> =>
+  withUploadStore('readwrite', (store) => {
+    const record: StoredUploadRecord = {
+      id: `${title}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      title,
+      name: file.name,
+      file,
+      updatedAt: Date.now(),
+    };
+
+    return new Promise((resolve, reject) => {
+      const request = store.put(record);
+      request.onerror = () => reject(request.error || new Error('Failed to store upload'));
+      request.onsuccess = () => resolve();
+    });
+  });
+
+const deleteStoredUploadRecords = async (ids: string[]): Promise<void> => {
+  if (ids.length === 0) {
+    return;
+  }
+
+  await withUploadStore('readwrite', (store) =>
+    Promise.all(
+      ids.map(
+        (id) =>
+          new Promise<void>((resolve, reject) => {
+            const request = store.delete(id);
+            request.onerror = () => reject(request.error || new Error('Failed to delete upload'));
+            request.onsuccess = () => resolve();
+          })
+      )
+    ).then(() => undefined)
+  );
+};
+
+const loadLocalResourceBackup = (): ResourceCollections | null => {
+  try {
+    const raw = localStorage.getItem(RESOURCE_LOCAL_BACKUP_KEY);
+    if (!raw) {
+      return null;
+    }
+
+    const parsed = JSON.parse(raw) as Partial<ResourceCollections>;
+    if (
+      !parsed ||
+      !Array.isArray(parsed.vocabulary) ||
+      !Array.isArray(parsed.listening) ||
+      !Array.isArray(parsed.reading) ||
+      !Array.isArray(parsed.writing) ||
+      !Array.isArray(parsed.speaking)
+    ) {
+      return null;
+    }
+
+    return {
+      vocabulary: parsed.vocabulary,
+      listening: parsed.listening,
+      reading: parsed.reading,
+      writing: parsed.writing,
+      speaking: parsed.speaking,
+    };
+  } catch (error) {
+    console.warn('Failed to parse local resource backup:', error);
+    return null;
+  }
+};
+
+const saveLocalResourceBackup = (resources: ResourceCollections) => {
+  try {
+    localStorage.setItem(RESOURCE_LOCAL_BACKUP_KEY, JSON.stringify(resources));
+  } catch (error) {
+    console.warn('Failed to save local resource backup:', error);
+  }
+};
+
+const loadDictionaryHistory = (): string[] => {
+  try {
+    const raw = localStorage.getItem(DICTIONARY_HISTORY_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === 'string') : [];
+  } catch (error) {
+    console.warn('Failed to load dictionary history:', error);
+    return [];
+  }
+};
+
+const saveDictionaryHistory = (history: string[]) => {
+  try {
+    localStorage.setItem(DICTIONARY_HISTORY_KEY, JSON.stringify(history));
+  } catch (error) {
+    console.warn('Failed to save dictionary history:', error);
+  }
+};
+
+const requestDictionaryEntry = async (text: string): Promise<string> => {
+  try {
+    return await generateGeminiResponse(buildDictionaryPrompt(text), DICTIONARY_SYSTEM_INSTRUCTION);
   } catch (error) {
     console.error('Dictionary API Call Error:', error);
     return 'Definition search failed. Please check your API connection or try again.';
   }
 };
 
-// --- Sub-components (Unchanged except sync integration) ---
 interface FileManagerProps {
   title: string;
 }
-const FileManager: React.FC<FileManagerProps> = ({ title }) => {
-  const [files, setFiles] = useState<{ name: string; url: string }[]>([]);
-  const [isDeleteMode, setIsDeleteMode] = useState(false);
-  const [selectedIndices, setSelectedIndices] = useState<Set<number>>(new Set());
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+const FileManager: React.FC<FileManagerProps> = ({ title }) => {
+  const [files, setFiles] = useState<UploadFileView[]>([]);
+  const [isDeleteMode, setIsDeleteMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const objectUrlsRef = useRef<string[]>([]);
+  const mountedRef = useRef(false);
+
+  const replaceFiles = (nextFiles: UploadFileView[]) => {
+    objectUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
+    objectUrlsRef.current = nextFiles.map((file) => file.url);
+    setFiles(nextFiles);
+  };
+
+  const reloadFiles = async () => {
+    try {
+      const stored = await loadStoredUploadRecords(title);
+      const nextFiles = stored.map((record) => ({
+        id: record.id,
+        name: record.name,
+        url: URL.createObjectURL(record.file),
+      }));
+
+      if (!mountedRef.current) {
+        nextFiles.forEach((file) => URL.revokeObjectURL(file.url));
+        return;
+      }
+
+      replaceFiles(nextFiles);
+    } catch (error) {
+      console.error(`Failed to load files for "${title}"`, error);
+      if (mountedRef.current) {
+        replaceFiles([]);
+      }
+    }
+  };
+
+  useEffect(() => {
+    mountedRef.current = true;
+    void reloadFiles();
+
+    return () => {
+      mountedRef.current = false;
+      objectUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
+      objectUrlsRef.current = [];
+    };
+  }, [title]);
+
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
+
     if (file && file.type === 'application/pdf') {
-      const fileUrl = URL.createObjectURL(file);
-      setFiles((prev) => [...prev, { name: file.name, url: fileUrl }]);
+      try {
+        await saveStoredUploadRecord(title, file);
+        await reloadFiles();
+      } catch (error) {
+        console.error(`Failed to save file for "${title}"`, error);
+        alert('Failed to save PDF locally. Please try again.');
+      }
     } else if (file) {
       alert('Please upload a PDF file.');
     }
-    if (event.target) event.target.value = '';
+
+    if (event.target) {
+      event.target.value = '';
+    }
   };
 
   const toggleDeleteMode = () => {
-    setIsDeleteMode(!isDeleteMode);
-    setSelectedIndices(new Set());
+    setIsDeleteMode((prev) => !prev);
+    setSelectedIds(new Set());
   };
 
-  const toggleSelection = (index: number) => {
-    const newSelection = new Set(selectedIndices);
-    if (newSelection.has(index)) {
-      newSelection.delete(index);
-    } else {
-      newSelection.add(index);
+  const toggleSelection = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const deleteSelected = async () => {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) {
+      return;
     }
-    setSelectedIndices(newSelection);
-  };
 
-  const deleteSelected = () => {
-    setFiles(files.filter((_, idx) => !selectedIndices.has(idx)));
-    setSelectedIndices(new Set());
-    setIsDeleteMode(false);
+    try {
+      await deleteStoredUploadRecords(ids);
+      await reloadFiles();
+    } catch (error) {
+      console.error(`Failed to delete files for "${title}"`, error);
+      alert('Failed to delete the selected files. Please try again.');
+    } finally {
+      setSelectedIds(new Set());
+      setIsDeleteMode(false);
+    }
   };
 
   return (
@@ -145,21 +403,21 @@ const FileManager: React.FC<FileManagerProps> = ({ title }) => {
             No files uploaded
           </div>
         ) : (
-          files.map((file, idx) => (
+          files.map((file) => (
             <div
-              key={idx}
+              key={file.id}
               className={`flex items-center gap-2 p-1.5 rounded-lg transition-all ${
-                isDeleteMode && selectedIndices.has(idx)
+                isDeleteMode && selectedIds.has(file.id)
                   ? 'bg-red-50 border border-red-100'
                   : 'bg-white border border-slate-100'
               }`}
             >
               {isDeleteMode ? (
                 <button
-                  onClick={() => toggleSelection(idx)}
+                  onClick={() => toggleSelection(file.id)}
                   className="text-slate-400 hover:text-red-500 transition-colors"
                 >
-                  {selectedIndices.has(idx) ? (
+                  {selectedIds.has(file.id) ? (
                     <CheckSquare size={16} className="text-red-500" />
                   ) : (
                     <Square size={16} />
@@ -171,7 +429,7 @@ const FileManager: React.FC<FileManagerProps> = ({ title }) => {
               <div className="flex-1 min-w-0 overflow-hidden">
                 {isDeleteMode ? (
                   <span
-                    onClick={() => toggleSelection(idx)}
+                    onClick={() => toggleSelection(file.id)}
                     className="text-xs text-slate-700 truncate block cursor-pointer select-none"
                   >
                     {file.name}
@@ -192,24 +450,17 @@ const FileManager: React.FC<FileManagerProps> = ({ title }) => {
           ))
         )}
       </div>
-      {isDeleteMode && selectedIndices.size > 0 && (
+      {isDeleteMode && selectedIds.size > 0 && (
         <button
           onClick={deleteSelected}
           className="w-full py-1 bg-red-500 text-white text-[10px] font-bold rounded-md hover:bg-red-600 transition-colors flex items-center justify-center gap-1 animate-fade-in"
         >
-          <Trash2 size={10} /> Delete ({selectedIndices.size})
+          <Trash2 size={10} /> Delete ({selectedIds.size})
         </button>
       )}
     </div>
   );
 };
-
-interface ResourceItem {
-  name: string;
-  url?: string;
-  isUpload?: boolean;
-  note?: string;
-}
 
 interface ResourceCardProps {
   title: string;
@@ -218,6 +469,7 @@ interface ResourceCardProps {
   headerColor: string;
   onSave: (updatedItems: ResourceItem[]) => void;
 }
+
 const ResourceCard: React.FC<ResourceCardProps> = ({
   title,
   items: initialItems,
@@ -227,10 +479,11 @@ const ResourceCard: React.FC<ResourceCardProps> = ({
 }) => {
   const [items, setItems] = useState<ResourceItem[]>(initialItems);
   const [isEditing, setIsEditing] = useState(false);
-// ✅ 核心修复：监听数据变化，强制更新显示
+
   useEffect(() => {
     setItems(initialItems);
   }, [initialItems]);
+
   const handleAddItem = () => {
     const newItems = [...items, { name: '', url: '', note: 'New Resource' }];
     setItems(newItems);
@@ -246,21 +499,21 @@ const ResourceCard: React.FC<ResourceCardProps> = ({
   const handleUpdateItem = (index: number, field: keyof ResourceItem, value: string) => {
     const newItems = [...items];
     newItems[index] = { ...newItems[index], [field]: value };
+
     if (field === 'url' && !newItems[index].name && value) {
       try {
         const urlObj = new URL(value);
         let domain = urlObj.hostname.replace('www.', '');
         domain = domain.charAt(0).toUpperCase() + domain.slice(1);
         newItems[index].name = domain;
-      } catch (e) {
-        // Invalid URL, ignore
+      } catch {
+        // Ignore invalid URLs while editing.
       }
     }
+
     setItems(newItems);
     onSave(newItems);
   };
-
-
 
   return (
     <div className="bg-white rounded-2xl overflow-hidden shadow-sm hover:shadow-lg transition-all duration-300 border border-slate-100 flex flex-col h-full group">
@@ -274,7 +527,7 @@ const ResourceCard: React.FC<ResourceCardProps> = ({
           <h3 className="text-sm font-bold text-slate-800 tracking-tight">{title}</h3>
         </div>
         <button
-          onClick={() => setIsEditing(!isEditing)}
+          onClick={() => setIsEditing((prev) => !prev)}
           className={`p-1.5 rounded-lg transition-colors ${
             isEditing ? 'bg-white text-emerald-600 shadow-sm' : 'hover:bg-white/50 text-slate-600'
           }`}
@@ -347,7 +600,10 @@ const ResourceCard: React.FC<ResourceCardProps> = ({
                       </p>
                     )}
                   </div>
-                  <ExternalLink size={12} className="text-slate-300 group-hover/item:text-slate-600 transition-colors flex-shrink-0 ml-2" />
+                  <ExternalLink
+                    size={12}
+                    className="text-slate-300 group-hover/item:text-slate-600 transition-colors flex-shrink-0 ml-2"
+                  />
                 </div>
               </a>
             )}
@@ -366,12 +622,11 @@ const ResourceCard: React.FC<ResourceCardProps> = ({
   );
 };
 
-// --- ENHANCED DictionaryWidget with Robust Parser ---
 const DictionaryWidget: React.FC = () => {
   const [query, setQuery] = useState('');
   const [result, setResult] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [history, setHistory] = useState<string[]>([]);
+  const [history, setHistory] = useState<string[]>(() => loadDictionaryHistory());
   const [showHistory, setShowHistory] = useState(false);
   const historyRef = useRef<HTMLDivElement>(null);
 
@@ -381,46 +636,64 @@ const DictionaryWidget: React.FC = () => {
         setShowHistory(false);
       }
     };
+
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  useEffect(() => {
+    saveDictionaryHistory(history);
+  }, [history]);
+
   const performSearch = async (text: string) => {
-    if (!text.trim()) return;
+    const normalizedText = text.trim();
+    if (!normalizedText) {
+      return;
+    }
+
     setLoading(true);
     setResult(null);
     setShowHistory(false);
-    setHistory((prev) => {
-      const newHistory = [text, ...prev.filter((h) => h !== text)].slice(0, 5);
-      return newHistory;
-    });
-    const data = await translateAndDefine(text);
-    setResult(data);
-    setLoading(false);
+    setHistory((prev) => [normalizedText, ...prev.filter((item) => item !== normalizedText)].slice(0, 5));
+
+    try {
+      const data = await requestDictionaryEntry(normalizedText);
+      setResult(data);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleSearchClick = () => performSearch(query);
+  const handleSearchClick = () => {
+    void performSearch(query);
+  };
+
   const handleHistorySelect = (item: string) => {
     setQuery(item);
-    performSearch(item);
+    void performSearch(item);
   };
 
   const openGoogleTranslate = () => {
-    const text = query.trim() || '';
+    const text = query.trim();
     window.open(`https://translate.google.com/?sl=en&tl=zh-CN&text=${encodeURIComponent(text)}`, '_blank');
   };
 
   const speak = () => {
-    if ('speechSynthesis' in window) {
-      const utterance = new SpeechSynthesisUtterance(query);
-      utterance.lang = 'en-US';
-      window.speechSynthesis.speak(utterance);
+    const text = query.trim();
+    if (!text || !('speechSynthesis' in window)) {
+      return;
     }
+
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = 'en-US';
+    window.speechSynthesis.speak(utterance);
   };
 
-  const parseResult = (raw: string) => {
+  const parseResult = (raw: string): Record<string, string> | null => {
     const parsed: Record<string, string> = {};
     const lines = raw.split('\n');
+
     for (const line of lines) {
       if (line.startsWith('**Part of Speech:**')) {
         parsed.pos = line.replace('**Part of Speech:**', '').trim();
@@ -440,7 +713,8 @@ const DictionaryWidget: React.FC = () => {
         parsed.chunks = line.replace('**IELTS高频词组 (chunk):**', '').trim();
       }
     }
-    return parsed;
+
+    return Object.keys(parsed).length > 0 ? parsed : null;
   };
 
   const parsedResult = result ? parseResult(result) : null;
@@ -581,7 +855,6 @@ const DictionaryWidget: React.FC = () => {
   );
 };
 
-// --- FIXED StudyTimer with Safari/Edge Audio Compatibility (ONLY CHANGE) ---
 const StudyTimer: React.FC = () => {
   const [mode, setMode] = useState<'timer' | 'stopwatch'>('timer');
   const [status, setStatus] = useState<'idle' | 'running' | 'paused'>('idle');
@@ -594,21 +867,24 @@ const StudyTimer: React.FC = () => {
 
   const initAudioContext = () => {
     if (!audioContextRef.current) {
-      const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
-      if (AudioContext) {
-        audioContextRef.current = new AudioContext();
+      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+      if (AudioContextClass) {
+        audioContextRef.current = new AudioContextClass();
       }
     }
   };
 
   useEffect(() => {
     let interval: ReturnType<typeof setInterval> | null = null;
+
     if (status === 'running') {
       interval = setInterval(() => {
         if (mode === 'timer') {
           setTimeLeft((prev) => {
-            if (prev <= 0) {
-              if (interval) clearInterval(interval);
+            if (prev <= 1) {
+              if (interval) {
+                clearInterval(interval);
+              }
               setStatus('idle');
               playAppleRadarAlarm();
               return 0;
@@ -620,8 +896,11 @@ const StudyTimer: React.FC = () => {
         }
       }, 1000);
     }
+
     return () => {
-      if (interval) clearInterval(interval);
+      if (interval) {
+        clearInterval(interval);
+      }
     };
   }, [status, mode]);
 
@@ -630,10 +909,14 @@ const StudyTimer: React.FC = () => {
       if (!audioContextRef.current) {
         initAudioContext();
       }
+
       const ctx = audioContextRef.current;
-      if (!ctx) return;
+      if (!ctx) {
+        return;
+      }
+
       if (ctx.state === 'suspended') {
-        ctx.resume().catch(console.error);
+        void ctx.resume();
       }
 
       const now = ctx.currentTime;
@@ -652,51 +935,74 @@ const StudyTimer: React.FC = () => {
         osc.stop(time + 0.1);
       };
 
-      for (let loop = 0; loop < 4; loop++) {
+      for (let loop = 0; loop < 4; loop += 1) {
         const base = now + loop * 1.5;
         playPulse(base);
         playPulse(base + 0.15);
         playPulse(base + 0.3);
       }
-    } catch (e) {
-      console.error('Audio alarm failed:', e);
+    } catch (error) {
+      console.error('Audio alarm failed:', error);
     }
   };
 
   const handleStart = () => {
     initAudioContext();
+
     if (mode === 'timer') {
       if (status === 'idle') {
-        const totalSec = parseInt(h) * 3600 + parseInt(m) * 60 + parseInt(s);
-        setTimeLeft(totalSec > 0 ? totalSec : 0);
+        const totalSec = parseInt(h, 10) * 3600 + parseInt(m, 10) * 60 + parseInt(s, 10);
+        if (totalSec <= 0) {
+          return;
+        }
+        setTimeLeft(totalSec);
+        setStatus('running');
+        return;
       }
-      if (timeLeft > 0 || status === 'idle') setStatus('running');
-    } else {
-      setStatus('running');
+
+      if (timeLeft > 0) {
+        setStatus('running');
+      }
+      return;
     }
+
+    setStatus('running');
   };
 
   const handlePause = () => setStatus('paused');
+
   const handleReset = () => {
     setStatus('idle');
     if (mode === 'stopwatch') {
       setStopwatchTime(0);
+      return;
     }
+
+    const totalSec = parseInt(h, 10) * 3600 + parseInt(m, 10) * 60 + parseInt(s, 10);
+    setTimeLeft(totalSec > 0 ? totalSec : 0);
   };
 
   const formatTime = (totalSec: number) => {
     const hh = Math.floor(totalSec / 3600);
     const mm = Math.floor((totalSec % 3600) / 60);
     const ss = totalSec % 60;
+
     if (hh > 0) {
       return `${hh}:${mm.toString().padStart(2, '0')}:${ss.toString().padStart(2, '0')}`;
     }
+
     return `${mm.toString().padStart(2, '0')}:${ss.toString().padStart(2, '0')}`;
   };
 
-  const handleInputChange = (val: string, setter: React.Dispatch<React.SetStateAction<string>>, max: number) => {
-    let num = parseInt(val.replace(/\D/g, '')) || 0;
-    if (num > max) num = max;
+  const handleInputChange = (
+    val: string,
+    setter: React.Dispatch<React.SetStateAction<string>>,
+    max: number
+  ) => {
+    let num = parseInt(val.replace(/\D/g, ''), 10) || 0;
+    if (num > max) {
+      num = max;
+    }
     setter(num.toString().padStart(2, '0'));
   };
 
@@ -786,113 +1092,61 @@ const StudyTimer: React.FC = () => {
   );
 };
 
-// --- Main Component with Sync Integration ---
 const ResourceHub: React.FC = () => {
-  const defaultResources = {
-    vocabulary: [
-      { name: 'YouGlish', url: 'https://youglish.com', note: 'Contextual Pronunciation' },
-      { name: 'BuBeiDan (App)', note: 'App Recommendation' },
-      { name: 'Vocabulary Lists (PDF)', isUpload: true },
-    ],
-    listening: [
-      { name: 'BBC Learning English', url: 'https://www.youtube.com/@bbclearningenglish/videos', note: 'Global News & Accents' },
-      { name: 'VoiceTube', url: 'https://www.voicetube.com/channels/business-and-finance?sortBy=publishedAt&page=1', note: 'Video Dictionary' },
-      { name: 'Cambridge Listening Practice', isUpload: true },
-    ],
-    reading: [{ name: 'Cambridge 11-19 Papers', isUpload: true }],
-    writing: [
-      { name: 'Simon IELTS', url: 'https://www.bilibili.com/video/BV1fhghzZE8a/', note: 'Band 9 Structures' },
-      { name: 'IELTS Liz Essays', url: 'https://ieltsliz.com/ielts-writing-task-2/', note: 'Model Answers' },
-    ],
-    speaking: [
-      { name: 'English with Lucy', url: 'https://www.youtube.com/@EnglishwithLucy', note: 'British Pronunciation' },
-      { name: 'IELTS Liz Tips', url: 'https://ieltsliz.com/ielts-speaking-free-lessons-essential-tips/', note: 'Part 1, 2, 3 Strategy' },
-    ],
-  };
+  const [resources, setResources] = useState<ResourceCollections>(DEFAULT_RESOURCES);
 
-  const [resources, setResources] = useState<{
-    vocabulary: ResourceItem[];
-    listening: ResourceItem[];
-    reading: ResourceItem[];
-    writing: ResourceItem[];
-    speaking: ResourceItem[];
-    
-  }>({
-    vocabulary: defaultResources.vocabulary,
-    listening: defaultResources.listening,
-    reading: defaultResources.reading,
-    writing: defaultResources.writing,
-    speaking: defaultResources.speaking,
-    
-  });
+  useEffect(() => {
+    const loadSyncData = async () => {
+      const localBackup = loadLocalResourceBackup();
 
-  // Load from /api/sync on mount (FIXED)
-useEffect(() => {
-  const loadSyncData = async () => {
-    try {
-      const res = await fetch('/api/sync');
-      if (!res.ok) throw new Error('Network response not ok');
-      const data = await res.json();
-      const hub = data?.resourceHub;
-      const chill = data?.chillZone; // <--- 【修改点 2a】：提取 Chill Zone 数据
+      try {
+        const res = await fetch('/api/sync', { cache: 'no-store' });
+        if (!res.ok) {
+          throw new Error('Network response not ok');
+        }
 
-      setResources({
-        vocabulary: Array.isArray(hub?.vocabulary) ? hub.vocabulary : defaultResources.vocabulary,
-        listening: Array.isArray(hub?.listening) ? hub.listening : defaultResources.listening,
-        reading: Array.isArray(hub?.reading) ? hub.reading : defaultResources.reading,
-        writing: Array.isArray(hub?.writing) ? hub.writing : defaultResources.writing,
-        speaking: Array.isArray(hub?.speaking) ? hub.speaking : defaultResources.speaking,
-        
-      });
-    } catch (err) {
-      console.error('Sync load failed:', err);
-    }
-  };
+        const data = await res.json();
+        const hub = data?.resourceHub;
 
-  loadSyncData();
-}, []);
+        const nextResources: ResourceCollections = {
+          vocabulary: Array.isArray(hub?.vocabulary) ? hub.vocabulary : localBackup?.vocabulary || DEFAULT_RESOURCES.vocabulary,
+          listening: Array.isArray(hub?.listening) ? hub.listening : localBackup?.listening || DEFAULT_RESOURCES.listening,
+          reading: Array.isArray(hub?.reading) ? hub.reading : localBackup?.reading || DEFAULT_RESOURCES.reading,
+          writing: Array.isArray(hub?.writing) ? hub.writing : localBackup?.writing || DEFAULT_RESOURCES.writing,
+          speaking: Array.isArray(hub?.speaking) ? hub.speaking : localBackup?.speaking || DEFAULT_RESOURCES.speaking,
+        };
 
-  // Save all resources to /api/sync
-  const saveAllResources = async (newResources: typeof resources) => {
+        setResources(nextResources);
+        saveLocalResourceBackup(nextResources);
+      } catch (error) {
+        console.error('Sync load failed:', error);
+        if (localBackup) {
+          setResources(localBackup);
+        }
+      }
+    };
+
+    void loadSyncData();
+  }, []);
+
+  const saveAllResources = async (newResources: ResourceCollections) => {
+    saveLocalResourceBackup(newResources);
+
     try {
       const res = await fetch('/api/sync', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newResources),
       });
+
       if (!res.ok) {
         console.error('Sync save failed:', await res.text());
       }
-    } catch (err) {
-      console.error('Sync save error:', err);
+    } catch (error) {
+      console.error('Sync save error:', error);
     }
   };
 
-
-
-const handleSaveChillZone = async (seriesList: any[]) => {
-  if (isSaving) return;
-  setIsSaving(true);
-
-  try {
-    // ✅ 只发送 { seriesList: [...] } —— 这正是 sync.ts 识别 ChillZone 的格式！
-    const payload = { seriesList };
-
-    const res = await fetch('/api/sync', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-
-    if (!res.ok) throw new Error('Failed to save chill zone');
-    setLastSavedTime(new Date());
-  } catch (e) {
-    console.error('Error saving chill zone:', e);
-  } finally {
-    setIsSaving(false);
-  }
-};
- 
   return (
     <div className="animate-fade-in max-w-7xl mx-auto pb-12">
       <div className="flex flex-col md:flex-row justify-between items-end mb-6 px-2">
@@ -902,7 +1156,6 @@ const handleSaveChillZone = async (seriesList: any[]) => {
         </div>
       </div>
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
-        {/* --- LEFT: Resources Grid (8 Cols) --- */}
         <div className="lg:col-span-8 grid grid-cols-1 md:grid-cols-2 gap-5">
           <ResourceCard
             title="Vocabulary"
@@ -910,10 +1163,10 @@ const handleSaveChillZone = async (seriesList: any[]) => {
             headerColor="bg-[#A4C3B2]/30"
             items={resources.vocabulary}
             onSave={(updatedItems) => {
-    const newResources = { ...resources, vocabulary: updatedItems };
-    setResources(newResources);
-    saveAllResources(newResources);
-  }}
+              const newResources = { ...resources, vocabulary: updatedItems };
+              setResources(newResources);
+              void saveAllResources(newResources);
+            }}
           />
           <ResourceCard
             title="Listening"
@@ -921,10 +1174,10 @@ const handleSaveChillZone = async (seriesList: any[]) => {
             headerColor="bg-[#9BB7D4]/30"
             items={resources.listening}
             onSave={(updatedItems) => {
-    const newResources = { ...resources, listening: updatedItems };
-    setResources(newResources);
-    saveAllResources(newResources);
-  }}
+              const newResources = { ...resources, listening: updatedItems };
+              setResources(newResources);
+              void saveAllResources(newResources);
+            }}
           />
           <ResourceCard
             title="Reading"
@@ -932,10 +1185,10 @@ const handleSaveChillZone = async (seriesList: any[]) => {
             headerColor="bg-[#D4A5A5]/30"
             items={resources.reading}
             onSave={(updatedItems) => {
-    const newResources = { ...resources, reading: updatedItems };
-    setResources(newResources);
-    saveAllResources(newResources);
-  }}
+              const newResources = { ...resources, reading: updatedItems };
+              setResources(newResources);
+              void saveAllResources(newResources);
+            }}
           />
           <ResourceCard
             title="Writing"
@@ -943,10 +1196,10 @@ const handleSaveChillZone = async (seriesList: any[]) => {
             headerColor="bg-[#EAD18F]/30"
             items={resources.writing}
             onSave={(updatedItems) => {
-    const newResources = { ...resources, writing: updatedItems };
-    setResources(newResources);
-    saveAllResources(newResources);
-  }}
+              const newResources = { ...resources, writing: updatedItems };
+              setResources(newResources);
+              void saveAllResources(newResources);
+            }}
           />
           <ResourceCard
             title="Speaking"
@@ -954,13 +1207,12 @@ const handleSaveChillZone = async (seriesList: any[]) => {
             headerColor="bg-[#E6B89C]/30"
             items={resources.speaking}
             onSave={(updatedItems) => {
-    const newResources = { ...resources, speaking: updatedItems };
-    setResources(newResources);
-    saveAllResources(newResources);
-  }}
+              const newResources = { ...resources, speaking: updatedItems };
+              setResources(newResources);
+              void saveAllResources(newResources);
+            }}
           />
         </div>
-        {/* --- RIGHT: Tools Column (4 Cols) --- */}
         <div className="lg:col-span-4 space-y-5">
           <StudyTimer />
           <DictionaryWidget />
