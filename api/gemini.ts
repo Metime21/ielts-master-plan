@@ -1,16 +1,42 @@
-// api/gemini.ts
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 
-const DASHSCOPE_API_KEY = process.env.DASHSCOPE_API_KEY;
 const MODEL = 'qwen3-max';
+const REQUEST_TIMEOUT_MS = 55000;
+const DASHSCOPE_URL =
+  'https://dashscope.aliyuncs.com/api/v1/services/aigc/text-generation/generation';
 
-if (!DASHSCOPE_API_KEY) {
-  console.error('[FATAL] DASHSCOPE_API_KEY is missing');
-  throw new Error('DASHSCOPE_API_KEY not configured');
-}
+type IncomingMessage = {
+  role: 'user' | 'assistant';
+  content: string;
+};
+
+type DashscopeMessage = {
+  role: 'system' | 'user' | 'assistant';
+  content: string;
+};
+
+const isValidIncomingMessage = (value: unknown): value is IncomingMessage => {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+
+  const candidate = value as IncomingMessage;
+  return (
+    (candidate.role === 'user' || candidate.role === 'assistant') &&
+    typeof candidate.content === 'string'
+  );
+};
+
+const buildErrorText = async (response: Response): Promise<string> => {
+  try {
+    const text = await response.text();
+    return text || response.statusText || 'Unknown upstream error';
+  } catch {
+    return response.statusText || 'Unknown upstream error';
+  }
+};
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  // CORS headers
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -23,37 +49,37 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(405).json({ error: 'Method Not Allowed' });
   }
 
+  const apiKey = process.env.DASHSCOPE_API_KEY;
+  if (!apiKey) {
+    console.error('[api/gemini] DASHSCOPE_API_KEY is missing');
+    return res.status(500).json({ error: 'AI service is not configured.' });
+  }
+
+  const { messages, systemInstruction } = req.body ?? {};
+
+  if (!Array.isArray(messages) || messages.length === 0) {
+    return res.status(400).json({ error: 'Invalid messages format' });
+  }
+
+  if (!messages.every(isValidIncomingMessage)) {
+    return res.status(400).json({
+      error: 'Each message must include role ("user" | "assistant") and string content',
+    });
+  }
+
+  const fullMessages: DashscopeMessage[] =
+    typeof systemInstruction === 'string' && systemInstruction.trim() !== ''
+      ? [{ role: 'system', content: systemInstruction.trim() }, ...messages]
+      : messages;
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
   try {
-    const { messages, systemInstruction } = req.body;
-
-    if (!Array.isArray(messages) || messages.length === 0) {
-      return res.status(400).json({ error: 'Invalid messages format' });
-    }
-
-    for (const msg of messages) {
-      if (!['user', 'assistant'].includes(msg.role)) {
-        return res.status(400).json({ error: 'Message role must be user or assistant' });
-      }
-      if (typeof msg.content !== 'string') {
-        return res.status(400).json({ error: 'Message content must be string' });
-      }
-    }
-
-    let fullMessages = messages;
-    if (typeof systemInstruction === 'string' && systemInstruction.trim() !== '') {
-      fullMessages = [
-        { role: 'system', content: systemInstruction.trim() },
-        ...messages
-      ];
-    }
-
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 55000);
-
-    const response = await fetch('https://dashscope.aliyuncs.com/api/v1/services/aigc/text-generation/generation', {
+    const response = await fetch(DASHSCOPE_URL, {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${DASHSCOPE_API_KEY}`,
+        Authorization: `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
@@ -70,55 +96,63 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       signal: controller.signal,
     });
 
-    clearTimeout(timeoutId);
-
     if (!response.ok) {
-      const errorText = await response.text().catch(() => 'Unknown error');
-      console.error('Qwen API HTTP Error:', response.status, errorText);
-      return res.status(response.status).json({ error: 'Failed to call Qwen API', details: errorText });
+      const errorText = await buildErrorText(response);
+      console.error('[api/gemini] Qwen API HTTP Error:', response.status, errorText);
+      return res.status(response.status).json({
+        error: 'Failed to call Qwen API',
+        details: errorText,
+      });
     }
 
     const data = await response.json();
-    const output = data.output?.choices?.[0]?.message?.content;
+    const output = data?.output?.choices?.[0]?.message?.content;
 
     if (typeof output !== 'string' || output.trim() === '') {
-      console.warn('Qwen returned empty or invalid response:', JSON.stringify(data, null, 2));
+      console.warn(
+        '[api/gemini] Qwen returned empty or invalid response:',
+        JSON.stringify(data, null, 2)
+      );
       return res.status(502).json({
         error: 'AI returned invalid response',
-        candidates: [{
-          content: {
-            parts: [{ text: 'Sorry, I cannot generate a valid response right now.' }],
-            role: 'model',
-          },
-        }],
       });
     }
 
-    const tokenUsage = data.usage || { input_tokens: 0, output_tokens: 0, total_tokens: 0 };
+    const usage = data?.usage || {
+      input_tokens: 0,
+      output_tokens: 0,
+      total_tokens: 0,
+    };
 
     return res.status(200).json({
-      candidates: [{
-        content: {
-          parts: [{ text: output.trim() }],
-          role: 'model',
+      candidates: [
+        {
+          content: {
+            parts: [{ text: output.trim() }],
+            role: 'model',
+          },
+          finishReason: 'STOP',
+          index: 0,
         },
-        finishReason: 'STOP',
-        index: 0,
-      }],
+      ],
       usageMetadata: {
-        promptTokenCount: tokenUsage.input_tokens,
-        candidatesTokenCount: tokenUsage.output_tokens,
-        totalTokenCount: tokenUsage.total_tokens,
+        promptTokenCount: usage.input_tokens,
+        candidatesTokenCount: usage.output_tokens,
+        totalTokenCount: usage.total_tokens,
       },
     });
-  } catch (error: any) {
-    if (error.name === 'AbortError') {
-      console.warn('[Qwen] Request timed out after 55s');
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      console.warn('[api/gemini] Request timed out after 55s');
       return res.status(504).json({
-        error: 'AI response timed out. Full essay analysis may take up to one minute. Please try again or check your internet connection.'
+        error:
+          'AI response timed out. Full essay analysis may take up to one minute. Please try again or check your internet connection.',
       });
     }
-    console.error('Server Error:', error);
+
+    console.error('[api/gemini] Server Error:', error);
     return res.status(500).json({ error: 'Internal server error' });
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
