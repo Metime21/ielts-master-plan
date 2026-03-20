@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 
-const MODEL = 'qwen3-max';
+const MODEL = 'qwen3-max-2026-01-23';
 const REQUEST_TIMEOUT_MS = 55000;
 const DASHSCOPE_URL =
   'https://dashscope.aliyuncs.com/api/v1/services/aigc/text-generation/generation';
