@@ -1,13 +1,26 @@
-// components/SmartPlanner.tsx
-import React, { useState, useEffect } from 'react';
-import { ChevronLeft, ChevronRight, Edit3, Save, CheckCircle2, Calendar as CalendarIcon, Target } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import {
+  ChevronLeft,
+  ChevronRight,
+  Edit3,
+  Save,
+  CheckCircle2,
+  Calendar as CalendarIcon,
+  Target,
+} from 'lucide-react';
 import { Task, DailyReview, Mood, DayData } from '../types';
+import { loadPlannerData, savePlannerData } from '../utils/plannerStorage';
 
-// --- Helpers ---
-const getDaysInMonth = (year: number, month: number) => new Date(year, month + 1, 0).getDate();
-const getFirstDayOfMonth = (year: number, month: number) => new Date(year, month, 1).getDay();
+const getDaysInMonth = (year: number, month: number) =>
+  new Date(year, month + 1, 0).getDate();
+
+const getFirstDayOfMonth = (year: number, month: number) =>
+  new Date(year, month, 1).getDay();
+
 const formatDateKey = (date: Date): string => {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(
+    date.getDate()
+  ).padStart(2, '0')}`;
 };
 
 const INITIAL_TASKS: Task[] = [
@@ -20,7 +33,7 @@ const INITIAL_TASKS: Task[] = [
 const INITIAL_REVIEW: DailyReview = {
   readingListening: '',
   speakingWriting: '',
-  mood: null
+  mood: null,
 };
 
 const MORANDI_BORDERS = [
@@ -30,54 +43,155 @@ const MORANDI_BORDERS = [
   'border-[#EAD18F]',
 ];
 
-// --- API Sync Functions ---
+const createDefaultTasks = (): Task[] =>
+  INITIAL_TASKS.map((task) => ({
+    ...task,
+  }));
+
+const createDefaultDayData = (): DayData => ({
+  tasks: createDefaultTasks(),
+  review: { ...INITIAL_REVIEW },
+});
+
+const isPlainObject = (value: unknown): value is Record<string, unknown> =>
+  value !== null && typeof value === 'object' && !Array.isArray(value);
+
+const sanitizeProgress = (value: unknown): number => {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return 0;
+  }
+
+  if (value < 0) {
+    return 0;
+  }
+
+  if (value > 100) {
+    return 100;
+  }
+
+  return value;
+};
+
+const sanitizeTask = (value: unknown, fallback: Task): Task => {
+  if (!isPlainObject(value)) {
+    return { ...fallback };
+  }
+
+  return {
+    id: typeof value.id === 'string' ? value.id : fallback.id,
+    timeRange: typeof value.timeRange === 'string' ? value.timeRange : fallback.timeRange,
+    subject: typeof value.subject === 'string' ? value.subject : fallback.subject,
+    content: typeof value.content === 'string' ? value.content : fallback.content,
+    progress: sanitizeProgress(value.progress),
+  };
+};
+
+const sanitizeReview = (value: unknown): DailyReview => {
+  if (!isPlainObject(value)) {
+    return { ...INITIAL_REVIEW };
+  }
+
+  const moodValue = value.mood;
+  const validMood =
+    typeof moodValue === 'string' && Object.values(Mood).includes(moodValue as Mood)
+      ? (moodValue as Mood)
+      : null;
+
+  return {
+    readingListening:
+      typeof value.readingListening === 'string' ? value.readingListening : '',
+    speakingWriting:
+      typeof value.speakingWriting === 'string' ? value.speakingWriting : '',
+    mood: validMood,
+  };
+};
+
+const sanitizeDayData = (value: unknown): DayData => {
+  if (!isPlainObject(value)) {
+    return createDefaultDayData();
+  }
+
+  const rawTasks = Array.isArray(value.tasks) ? value.tasks : [];
+  const tasks = INITIAL_TASKS.map((fallbackTask, index) =>
+    sanitizeTask(rawTasks[index], fallbackTask)
+  );
+
+  return {
+    tasks,
+    review: sanitizeReview(value.review),
+  };
+};
+
+const sanitizeHistory = (value: unknown): Record<string, DayData> => {
+  if (!isPlainObject(value)) {
+    return {};
+  }
+
+  const history: Record<string, DayData> = {};
+  for (const [key, dayValue] of Object.entries(value)) {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(key)) {
+      history[key] = sanitizeDayData(dayValue);
+    }
+  }
+
+  return history;
+};
+
+const hasMeaningfulReview = (review: DailyReview) =>
+  review.mood !== null ||
+  review.readingListening.trim() !== '' ||
+  review.speakingWriting.trim() !== '';
+
+const isTaskDifferentFromTemplate = (task: Task, template: Task) =>
+  task.timeRange !== template.timeRange ||
+  task.subject !== template.subject ||
+  task.content !== template.content ||
+  task.progress !== template.progress;
+
+const hasMeaningfulTaskChanges = (tasks: Task[]) =>
+  tasks.some((task, index) => isTaskDifferentFromTemplate(task, INITIAL_TASKS[index]));
+
+const hasMeaningfulDayData = (dayData: DayData) =>
+  hasMeaningfulReview(dayData.review) || hasMeaningfulTaskChanges(dayData.tasks);
+
 async function loadFromAPI(): Promise<Record<string, DayData>> {
+  const localHistory = sanitizeHistory(loadPlannerData());
+
   try {
-    const res = await fetch('/api/sync');
-    if (res.ok) {
-      const fullData = await res.json();
-      // ✅ ONLY CHANGE: extract planner data from nested response
-      if (fullData && typeof fullData === 'object' && fullData.planner) {
-        return fullData.planner;
-      }
-      return {};
+    const res = await fetch('/api/sync', { cache: 'no-store' });
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}`);
     }
-  } catch (err) {
-    console.warn('Failed to load from /api/sync:', err);
-  }
 
-  // Fallback to localStorage
-  const localData = localStorage.getItem('plannerLocalHistory');
-  if (localData) {
-    try {
-      const parsed = JSON.parse(localData);
-      if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
-        return parsed;
-      }
-    } catch (e) {
-      console.warn('Invalid localStorage data:', e);
+    const fullData = await res.json();
+    const remoteHistory = sanitizeHistory(fullData?.planner);
+
+    if (Object.keys(localHistory).length > 0) {
+      return { ...remoteHistory, ...localHistory };
     }
-  }
 
-  return {};
+    return remoteHistory;
+  } catch (error) {
+    console.warn('Failed to load from /api/sync:', error);
+    return localHistory;
+  }
 }
 
 async function saveToAPI(history: Record<string, DayData>): Promise<void> {
-  try {
-    // Clean out template-only days
-    const cleanedHistory: Record<string, DayData> = {};
-    for (const [key, dayData] of Object.entries(history)) {
-      const hasRealReview =
-        dayData.review.mood !== null ||
-        dayData.review.readingListening.trim() !== '' ||
-        dayData.review.speakingWriting.trim() !== '';
-      const hasProgress = dayData.tasks.some(task => task.progress > 0);
+  savePlannerData(history as Record<string, unknown>);
 
-      if (hasRealReview || hasProgress) {
-        cleanedHistory[key] = dayData;
-      }
+  const cleanedHistory: Record<string, DayData> = {};
+  for (const [key, dayData] of Object.entries(history)) {
+    if (hasMeaningfulDayData(dayData)) {
+      cleanedHistory[key] = dayData;
     }
+  }
 
+  if (Object.keys(cleanedHistory).length === 0) {
+    return;
+  }
+
+  try {
     const res = await fetch('/api/sync', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -87,56 +201,64 @@ async function saveToAPI(history: Record<string, DayData>): Promise<void> {
     if (!res.ok) {
       throw new Error(`HTTP ${res.status}`);
     }
-  } catch (err) {
-    console.error('Sync failed (data saved locally):', err);
-  }
-
-  // Always persist to localStorage as backup
-  try {
-    localStorage.setItem('plannerLocalHistory', JSON.stringify(history));
-  } catch (e) {
-    console.warn('Failed to save to localStorage:', e);
+  } catch (error) {
+    console.error('Sync failed (data kept locally):', error);
   }
 }
 
-// --- Main Component ---
 const SmartPlanner: React.FC = () => {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [history, setHistory] = useState<Record<string, DayData>>({});
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
 
-  // Load on mount
   useEffect(() => {
+    let isMounted = true;
+
     loadFromAPI().then((data) => {
-      setHistory(data);
+      if (isMounted) {
+        setHistory(data);
+      }
     });
+
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   const dateKey = formatDateKey(selectedDate);
-
-  const currentData: DayData = history[dateKey] || {
-    tasks: JSON.parse(JSON.stringify(INITIAL_TASKS)),
-    review: { ...INITIAL_REVIEW }
-  };
+  const currentData: DayData = history[dateKey] ?? createDefaultDayData();
 
   const updateHistory = (tasks: Task[], review: DailyReview) => {
-    const newHistory = { ...history, [dateKey]: { tasks, review } };
-    setHistory(newHistory);
-    saveToAPI(newHistory); // Auto-save silently
+    setHistory((prev) => {
+      const newHistory = { ...prev, [dateKey]: { tasks, review } };
+      void saveToAPI(newHistory);
+      return newHistory;
+    });
   };
 
-  const handleTaskChange = (taskId: string, field: keyof Task, value: any) => {
-    const newTasks = currentData.tasks.map(t => t.id === taskId ? { ...t, [field]: value } : t);
+  const handleTaskChange = (
+    taskId: string,
+    field: keyof Task,
+    value: string | number
+  ) => {
+    const newTasks = currentData.tasks.map((task) =>
+      task.id === taskId ? { ...task, [field]: value } : task
+    );
     updateHistory(newTasks, currentData.review);
   };
 
   const setTaskProgress = (taskId: string, progress: number) => {
-    const newTasks = currentData.tasks.map(t => t.id === taskId ? { ...t, progress } : t);
+    const newTasks = currentData.tasks.map((task) =>
+      task.id === taskId ? { ...task, progress } : task
+    );
     updateHistory(newTasks, currentData.review);
   };
 
-  const handleProgressClick = (e: React.MouseEvent<HTMLDivElement>, taskId: string) => {
+  const handleProgressClick = (
+    e: React.MouseEvent<HTMLDivElement>,
+    taskId: string
+  ) => {
     const rect = e.currentTarget.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const width = rect.width;
@@ -152,26 +274,46 @@ const SmartPlanner: React.FC = () => {
     setTaskProgress(taskId, newProgress);
   };
 
-  const handleReviewChange = (field: keyof DailyReview, value: any) => {
+  const handleReviewChange = (
+    field: keyof DailyReview,
+    value: string | Mood | null
+  ) => {
     const newReview = { ...currentData.review, [field]: value };
     updateHistory(currentData.tasks, newReview);
   };
 
   const changeMonth = (offset: number) => {
-    const newDate = new Date(currentDate.getFullYear(), currentDate.getMonth() + offset, 1);
+    const newDate = new Date(
+      currentDate.getFullYear(),
+      currentDate.getMonth() + offset,
+      1
+    );
     setCurrentDate(newDate);
   };
 
-  // --- Calendar Rendering ---
   const year = currentDate.getFullYear();
   const month = currentDate.getMonth();
   const daysInMonth = getDaysInMonth(year, month);
   const firstDay = getFirstDayOfMonth(year, month);
-  const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+  const monthNames = [
+    'January',
+    'February',
+    'March',
+    'April',
+    'May',
+    'June',
+    'July',
+    'August',
+    'September',
+    'October',
+    'November',
+    'December',
+  ];
   const todayKey = formatDateKey(new Date());
 
   const renderCalendarDays = () => {
     const days = [];
+
     for (let i = 0; i < firstDay; i++) {
       days.push(<div key={`empty-${i}`} className="h-6 w-6" />);
     }
@@ -189,11 +331,15 @@ const SmartPlanner: React.FC = () => {
           onClick={() => setSelectedDate(date)}
           className="relative h-7 w-7 flex flex-col items-center justify-center rounded-full text-[10px] font-medium transition-all"
         >
-          <div className={`h-6 w-6 flex items-center justify-center rounded-full transition-colors duration-200 ${
-            isToday ? 'bg-red-500 text-white shadow-md' :
-            isSelected ? 'bg-academic-800 text-white shadow-md' :
-            'text-slate-600 hover:bg-slate-100'
-          }`}>
+          <div
+            className={`h-6 w-6 flex items-center justify-center rounded-full transition-colors duration-200 ${
+              isToday
+                ? 'bg-red-500 text-white shadow-md'
+                : isSelected
+                ? 'bg-academic-800 text-white shadow-md'
+                : 'text-slate-600 hover:bg-slate-100'
+            }`}
+          >
             {d}
           </div>
           {hasData && !isSelected && !isToday && (
@@ -202,6 +348,7 @@ const SmartPlanner: React.FC = () => {
         </button>
       );
     }
+
     return days;
   };
 
@@ -216,24 +363,31 @@ const SmartPlanner: React.FC = () => {
   return (
     <div className="max-w-7xl mx-auto animate-fade-in pb-12">
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-        {/* LEFT COLUMN */}
         <div className="lg:col-span-8 space-y-6">
           <div className="flex items-end justify-between px-2">
             <div>
-              <h2 className="text-3xl font-extrabold text-academic-900 tracking-tight">Daily Review</h2>
+              <h2 className="text-3xl font-extrabold text-academic-900 tracking-tight">
+                Daily Review
+              </h2>
               <p className="text-slate-500 font-medium mt-1 flex items-center gap-1 text-sm">
                 <Edit3 size={14} /> Reflect, Learn, Improve.
               </p>
             </div>
             <div className="text-right">
-              <div className="text-4xl font-black text-slate-200 tracking-tighter leading-none">{selectedDate.getDate()}</div>
-              <div className="text-xs font-bold text-slate-400 uppercase tracking-widest">{monthNames[selectedDate.getMonth()]}</div>
+              <div className="text-4xl font-black text-slate-200 tracking-tighter leading-none">
+                {selectedDate.getDate()}
+              </div>
+              <div className="text-xs font-bold text-slate-400 uppercase tracking-widest">
+                {monthNames[selectedDate.getMonth()]}
+              </div>
             </div>
           </div>
 
           <div className="glass-card rounded-3xl p-6 border border-white/60 shadow-xl bg-white/90 backdrop-blur-xl">
             <div className="mb-6 p-4 bg-slate-50/50 rounded-2xl border border-slate-100/50">
-              <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 block">Mood Check</label>
+              <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 block">
+                Mood Check
+              </label>
               <div className="flex gap-4 justify-between sm:justify-start">
                 {Object.values(Mood).map((m) => (
                   <button
@@ -260,7 +414,9 @@ const SmartPlanner: React.FC = () => {
                   className="w-full bg-transparent border-none focus:ring-0 text-slate-700 text-base leading-relaxed h-60 resize-none placeholder:text-slate-300"
                   placeholder="Detailed breakdown of mistakes, synonyms found, or tricky accents encountered..."
                   value={currentData.review.readingListening}
-                  onChange={(e) => handleReviewChange('readingListening', e.target.value)}
+                  onChange={(e) =>
+                    handleReviewChange('readingListening', e.target.value)
+                  }
                 />
               </div>
 
@@ -272,14 +428,15 @@ const SmartPlanner: React.FC = () => {
                   className="w-full bg-transparent border-none focus:ring-0 text-slate-700 text-base leading-relaxed h-60 resize-none placeholder:text-slate-300"
                   placeholder="New idioms, grammar corrections, or ideas for Task 2 topics..."
                   value={currentData.review.speakingWriting}
-                  onChange={(e) => handleReviewChange('speakingWriting', e.target.value)}
+                  onChange={(e) =>
+                    handleReviewChange('speakingWriting', e.target.value)
+                  }
                 />
               </div>
             </div>
           </div>
         </div>
 
-        {/* RIGHT COLUMN */}
         <div className="lg:col-span-4 space-y-4">
           <div className="bg-white rounded-3xl shadow-lg border border-slate-100 overflow-hidden relative group hover:shadow-xl transition-shadow">
             <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-academic-500 via-indigo-400 to-accent-400"></div>
@@ -287,7 +444,8 @@ const SmartPlanner: React.FC = () => {
               <div className="flex justify-between items-center mb-3">
                 <h3 className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
                   <CalendarIcon size={12} className="text-accent-500" />
-                  {monthNames[month]} <span className="text-slate-400 font-normal">{year}</span>
+                  {monthNames[month]}{' '}
+                  <span className="text-slate-400 font-normal">{year}</span>
                 </h3>
                 <div className="flex gap-1">
                   <button
@@ -307,7 +465,12 @@ const SmartPlanner: React.FC = () => {
 
               <div className="grid grid-cols-7 gap-y-1 justify-items-center mb-1 border-b border-slate-50 pb-1">
                 {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((day, i) => (
-                  <span key={i} className="text-[8px] font-bold text-slate-300 uppercase tracking-wider">{day}</span>
+                  <span
+                    key={i}
+                    className="text-[8px] font-bold text-slate-300 uppercase tracking-wider"
+                  >
+                    {day}
+                  </span>
                 ))}
               </div>
 
@@ -323,7 +486,7 @@ const SmartPlanner: React.FC = () => {
                 <Target size={16} className="text-accent-500" /> Schedule
               </h3>
               <span className="text-[9px] font-bold bg-white px-1.5 py-0.5 rounded-full text-slate-500 border border-slate-200 shadow-sm">
-                {currentData.tasks.filter(t => t.progress === 100).length}/4
+                {currentData.tasks.filter((t) => t.progress === 100).length}/4
               </span>
             </div>
 
@@ -332,7 +495,10 @@ const SmartPlanner: React.FC = () => {
                 <div
                   key={task.id}
                   className={`bg-white rounded-2xl p-6 shadow-sm border-l-4 hover:shadow-md transition-all group ${
-                    MORANDI_BORDERS[index % MORANDI_BORDERS.length].replace('border-', 'border-l-')
+                    MORANDI_BORDERS[index % MORANDI_BORDERS.length].replace(
+                      'border-',
+                      'border-l-'
+                    )
                   }`}
                 >
                   <div className="flex justify-between items-start mb-3 gap-2">
@@ -341,20 +507,26 @@ const SmartPlanner: React.FC = () => {
                         <input
                           className="w-full text-[10px] font-bold text-slate-500 bg-slate-50 rounded px-1 py-0.5"
                           value={task.timeRange}
-                          onChange={(e) => handleTaskChange(task.id, 'timeRange', e.target.value)}
+                          onChange={(e) =>
+                            handleTaskChange(task.id, 'timeRange', e.target.value)
+                          }
                           placeholder="Time"
                         />
                         <input
                           className="w-full text-xs font-bold text-academic-900 bg-slate-50 rounded px-1 py-0.5"
                           value={task.subject}
-                          onChange={(e) => handleTaskChange(task.id, 'subject', e.target.value)}
+                          onChange={(e) =>
+                            handleTaskChange(task.id, 'subject', e.target.value)
+                          }
                           placeholder="Subject"
                         />
                         <textarea
                           className="w-full text-lg font-medium text-slate-700 bg-slate-50 rounded px-1 py-1 resize-none"
                           rows={2}
                           value={task.content}
-                          onChange={(e) => handleTaskChange(task.id, 'content', e.target.value)}
+                          onChange={(e) =>
+                            handleTaskChange(task.id, 'content', e.target.value)
+                          }
                           placeholder="Content details..."
                         />
                       </div>
@@ -364,18 +536,33 @@ const SmartPlanner: React.FC = () => {
                           <div className="text-[9px] font-bold text-slate-400 uppercase tracking-wide bg-slate-50 inline-block px-1 py-0.5 rounded">
                             {task.timeRange}
                           </div>
-                          {task.progress === 100 && <CheckCircle2 size={12} className="text-green-500 flex-shrink-0" />}
+                          {task.progress === 100 && (
+                            <CheckCircle2
+                              size={12}
+                              className="text-green-500 flex-shrink-0"
+                            />
+                          )}
                         </div>
-                        <div className="text-xs font-bold text-academic-800 truncate mb-1">{task.subject}</div>
-                        <div className="text-lg font-medium text-slate-700 leading-snug break-words">{task.content}</div>
+                        <div className="text-xs font-bold text-academic-800 truncate mb-1">
+                          {task.subject}
+                        </div>
+                        <div className="text-lg font-medium text-slate-700 leading-snug break-words">
+                          {task.content}
+                        </div>
                       </div>
                     )}
 
                     <button
-                      onClick={() => setEditingTaskId(editingTaskId === task.id ? null : task.id)}
+                      onClick={() =>
+                        setEditingTaskId(editingTaskId === task.id ? null : task.id)
+                      }
                       className="text-slate-300 hover:text-academic-500 transition-colors p-0.5 flex-shrink-0 mt-1"
                     >
-                      {editingTaskId === task.id ? <Save size={14} /> : <Edit3 size={14} />}
+                      {editingTaskId === task.id ? (
+                        <Save size={14} />
+                      ) : (
+                        <Edit3 size={14} />
+                      )}
                     </button>
                   </div>
 
@@ -392,7 +579,9 @@ const SmartPlanner: React.FC = () => {
                       <div className="w-[12.5%] h-full"></div>
                     </div>
                     <div
-                      className={`h-full transition-all duration-300 ease-out ${getProgressColor(task.progress)}`}
+                      className={`h-full transition-all duration-300 ease-out ${getProgressColor(
+                        task.progress
+                      )}`}
                       style={{ width: `${task.progress}%` }}
                     />
                   </div>
