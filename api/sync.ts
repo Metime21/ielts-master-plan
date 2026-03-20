@@ -1,4 +1,3 @@
-// pages/api/sync.ts
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { kv } from '@vercel/kv';
 
@@ -15,61 +14,289 @@ interface ResourceHubData {
   reading: ResourceItem[];
   writing: ResourceItem[];
   speaking: ResourceItem[];
-  seriesList?: any[];
+}
+
+interface PlannerTask {
+  id: string;
+  timeRange: string;
+  subject: string;
+  content: string;
+  progress: number;
+}
+
+interface PlannerReview {
+  readingListening: string;
+  speakingWriting: string;
+  mood: string | null;
+}
+
+interface PlannerDayData {
+  tasks: PlannerTask[];
+  review: PlannerReview;
 }
 
 interface PlannerData {
-  [date: string]: {
-    tasks?: Array<{
-      id: string;
-      timeRange: string;
-      subject: string;
-      content: string;
-      progress: number;
-    }>;
-    review?: {
-      readingListening?: string;
-      speakingWriting?: string;
-      mood?: string;
-    };
-  };
+  [date: string]: PlannerDayData;
+}
+
+interface ChillZoneItem {
+  id: string;
+  title: string;
+  desc: string;
+  url: string;
+  poster: string;
+  isCustom?: boolean;
 }
 
 interface ChillZoneData {
-  seriesList: any[];
+  seriesList: ChillZoneItem[];
 }
 
 const PLANNER_KEY = 'planner:data';
 const HUB_KEY = 'resourcehub:data';
 const CHILL_KEY = 'chillzone:data';
 
-function isPlainObject(obj: any): obj is Record<string, unknown> {
-  return obj !== null && typeof obj === 'object' && obj.constructor === Object;
+const RESOURCE_CATEGORIES = [
+  'vocabulary',
+  'listening',
+  'reading',
+  'writing',
+  'speaking',
+] as const;
+
+const EMPTY_REVIEW: PlannerReview = {
+  readingListening: '',
+  speakingWriting: '',
+  mood: null,
+};
+
+const EMPTY_RESOURCES: ResourceHubData = {
+  vocabulary: [],
+  listening: [],
+  reading: [],
+  writing: [],
+  speaking: [],
+};
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isDateKey(key: string): boolean {
+  return /^\d{4}-\d{2}-\d{2}$/.test(key);
+}
+
+function sanitizeProgress(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return 0;
+  }
+
+  if (value < 0) {
+    return 0;
+  }
+
+  if (value > 100) {
+    return 100;
+  }
+
+  return value;
+}
+
+function sanitizePlannerTask(value: unknown): PlannerTask | null {
+  if (!isPlainObject(value)) {
+    return null;
+  }
+
+  const { id, timeRange, subject, content, progress } = value;
+
+  if (
+    typeof id !== 'string' ||
+    typeof timeRange !== 'string' ||
+    typeof subject !== 'string' ||
+    typeof content !== 'string'
+  ) {
+    return null;
+  }
+
+  return {
+    id,
+    timeRange,
+    subject,
+    content,
+    progress: sanitizeProgress(progress),
+  };
+}
+
+function sanitizePlannerReview(value: unknown): PlannerReview {
+  if (!isPlainObject(value)) {
+    return { ...EMPTY_REVIEW };
+  }
+
+  return {
+    readingListening:
+      typeof value.readingListening === 'string' ? value.readingListening : '',
+    speakingWriting:
+      typeof value.speakingWriting === 'string' ? value.speakingWriting : '',
+    mood:
+      typeof value.mood === 'string' || value.mood === null
+        ? value.mood
+        : null,
+  };
+}
+
+function sanitizePlannerDayData(value: unknown): PlannerDayData | null {
+  if (!isPlainObject(value)) {
+    return null;
+  }
+
+  const rawTasks = Array.isArray(value.tasks) ? value.tasks : [];
+  const tasks = rawTasks
+    .map((task) => sanitizePlannerTask(task))
+    .filter((task): task is PlannerTask => task !== null);
+
+  const review = sanitizePlannerReview(value.review);
+
+  return {
+    tasks,
+    review,
+  };
+}
+
+function sanitizePlannerPayload(value: unknown): PlannerData | null {
+  if (!isPlainObject(value)) {
+    return null;
+  }
+
+  const result: PlannerData = {};
+
+  for (const [key, dayValue] of Object.entries(value)) {
+    if (!isDateKey(key)) {
+      continue;
+    }
+
+    const sanitizedDay = sanitizePlannerDayData(dayValue);
+    if (sanitizedDay) {
+      result[key] = sanitizedDay;
+    }
+  }
+
+  return result;
+}
+
+function sanitizeResourceItem(value: unknown): ResourceItem | null {
+  if (!isPlainObject(value) || typeof value.name !== 'string') {
+    return null;
+  }
+
+  return {
+    name: value.name,
+    url: typeof value.url === 'string' ? value.url : undefined,
+    isUpload: typeof value.isUpload === 'boolean' ? value.isUpload : undefined,
+    note: typeof value.note === 'string' ? value.note : undefined,
+  };
+}
+
+function sanitizeResourceArray(value: unknown): ResourceItem[] | null {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+
+  return value
+    .map((item) => sanitizeResourceItem(item))
+    .filter((item): item is ResourceItem => item !== null);
+}
+
+function sanitizeResourceHubPayload(value: unknown): Partial<ResourceHubData> | null {
+  if (!isPlainObject(value)) {
+    return null;
+  }
+
+  const result: Partial<ResourceHubData> = {};
+
+  for (const category of RESOURCE_CATEGORIES) {
+    const sanitized = sanitizeResourceArray(value[category]);
+    if (sanitized) {
+      result[category] = sanitized;
+    }
+  }
+
+  return Object.keys(result).length > 0 ? result : null;
+}
+
+function sanitizeStoredResourceHub(value: unknown): ResourceHubData | null {
+  if (!isPlainObject(value)) {
+    return null;
+  }
+
+  const result: Partial<ResourceHubData> = {};
+
+  for (const category of RESOURCE_CATEGORIES) {
+    const sanitized = sanitizeResourceArray(value[category]);
+    if (!sanitized) {
+      return null;
+    }
+    result[category] = sanitized;
+  }
+
+  return result as ResourceHubData;
+}
+
+function sanitizeChillZoneItem(value: unknown): ChillZoneItem | null {
+  if (!isPlainObject(value)) {
+    return null;
+  }
+
+  const { id, title, desc, url, poster, isCustom } = value;
+
+  if (
+    typeof id !== 'string' ||
+    typeof title !== 'string' ||
+    typeof desc !== 'string' ||
+    typeof url !== 'string' ||
+    typeof poster !== 'string'
+  ) {
+    return null;
+  }
+
+  return {
+    id,
+    title,
+    desc,
+    url,
+    poster,
+    isCustom: typeof isCustom === 'boolean' ? isCustom : undefined,
+  };
+}
+
+function sanitizeChillZonePayload(value: unknown): ChillZoneData | null {
+  if (!isPlainObject(value) || !Array.isArray(value.seriesList)) {
+    return null;
+  }
+
+  const seriesList = value.seriesList
+    .map((item) => sanitizeChillZoneItem(item))
+    .filter((item): item is ChillZoneItem => item !== null);
+
+  return {
+    seriesList,
+  };
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     if (req.method === 'GET') {
-      const planner = ((await kv.get(PLANNER_KEY)) as PlannerData | null) || {};
-      const hub = ((await kv.get(HUB_KEY)) as ResourceHubData | null) || null;
-      const chill = ((await kv.get(CHILL_KEY)) as ChillZoneData | null) || null;
+      const plannerRaw = await kv.get(PLANNER_KEY);
+      const hubRaw = await kv.get(HUB_KEY);
+      const chillRaw = await kv.get(CHILL_KEY);
 
-      const validHub =
-        hub &&
-        Array.isArray(hub.vocabulary) &&
-        Array.isArray(hub.listening) &&
-        Array.isArray(hub.reading) &&
-        Array.isArray(hub.writing) &&
-        Array.isArray(hub.speaking)
-          ? hub
-          : null;
+      const planner = sanitizePlannerPayload(plannerRaw) || {};
+      const resourceHub = sanitizeStoredResourceHub(hubRaw);
+      const chillZone = sanitizeChillZonePayload(chillRaw);
 
-      const validChill = chill && Array.isArray(chill.seriesList) ? chill : null;
-
-      return res.json({
+      return res.status(200).json({
         planner,
-        resourceHub: validHub,
-        chillZone: validChill,
+        resourceHub,
+        chillZone,
       });
     }
 
@@ -80,63 +307,49 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const body = req.body;
 
     if (!isPlainObject(body)) {
-      return res.status(400).json({ error: 'Body must be object' });
+      return res.status(400).json({ error: 'Body must be an object' });
     }
 
-    // Handle Planner update: keys are dates like "2025-12-13"
-    if (Object.keys(body).some(k => /^\d{4}-\d{2}-\d{2}$/.test(k))) {
-      const current = ((await kv.get(PLANNER_KEY)) as PlannerData | null) || {};
-      await kv.set(PLANNER_KEY, { ...current, ...body });
-      return res.json({ ok: true });
-    }
-
-    // Handle ResourceHub partial update —— ✅ CORRECTED LOGIC BELOW
-    const resourceCategories = ['vocabulary', 'listening', 'reading', 'writing', 'speaking'] as const;
-    const hasResourceField = resourceCategories.some(cat => Array.isArray(body[cat]));
-
-    if (hasResourceField) {
-      // ✅ Read from HUB_KEY, not PLANNER_KEY
-      const current = ((await kv.get(HUB_KEY)) as ResourceHubData | null) || {
-        vocabulary: [],
-        listening: [],
-        reading: [],
-        writing: [],
-        speaking: [],
-        seriesList: [],
-      };
-
-      const update = { ...current };
-
-      for (const cat of resourceCategories) {
-        if (Array.isArray(body[cat])) {
-          update[cat] = body[cat];
-        }
+    const hasPlannerKeys = Object.keys(body).some((key) => isDateKey(key));
+    if (hasPlannerKeys) {
+      const incomingPlanner = sanitizePlannerPayload(body);
+      if (!incomingPlanner) {
+        return res.status(400).json({ error: 'Invalid planner payload format' });
       }
 
-      // Also update seriesList if provided
-      if (Array.isArray(body.seriesList)) {
-        update.seriesList = body.seriesList;
-      }
+      const currentPlanner =
+        sanitizePlannerPayload(await kv.get(PLANNER_KEY)) || {};
 
-      // ✅ Write to HUB_KEY — this was the critical bug
-      await kv.set(HUB_KEY, update);
-      return res.json({ ok: true });
+      await kv.set(PLANNER_KEY, {
+        ...currentPlanner,
+        ...incomingPlanner,
+      });
+
+      return res.status(200).json({ ok: true });
     }
 
-    // Handle ChillZone update: ONLY if body is exactly { seriesList: [...] }
-    if (
-      body &&
-      Object.keys(body).length === 1 &&
-      Array.isArray(body.seriesList)
-    ) {
-      await kv.set(CHILL_KEY, { seriesList: body.seriesList });
-      return res.json({ ok: true });
+    const resourceUpdate = sanitizeResourceHubPayload(body);
+    if (resourceUpdate) {
+      const currentHub =
+        sanitizeStoredResourceHub(await kv.get(HUB_KEY)) || EMPTY_RESOURCES;
+
+      await kv.set(HUB_KEY, {
+        ...currentHub,
+        ...resourceUpdate,
+      });
+
+      return res.status(200).json({ ok: true });
+    }
+
+    const chillUpdate = sanitizeChillZonePayload(body);
+    if (chillUpdate && Object.keys(body).length === 1) {
+      await kv.set(CHILL_KEY, chillUpdate);
+      return res.status(200).json({ ok: true });
     }
 
     return res.status(400).json({ error: 'Invalid sync payload format' });
-
-  } catch (e) {
-    console.error('Sync API error:', e);
+  } catch (error) {
+    console.error('Sync API error:', error);
     return res.status(500).json({ error: 'Internal server error' });
   }
 }
