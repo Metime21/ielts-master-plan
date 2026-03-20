@@ -1,18 +1,29 @@
-// src/utils/plannerStorage.ts
-export const loadPlannerData = (): Record<string, any> => {
+export const PLANNER_STORAGE_KEY = 'plannerLocalHistory';
+
+type PlannerStorageShape = Record<string, unknown>;
+
+const isPlainObject = (value: unknown): value is PlannerStorageShape =>
+  value !== null && typeof value === 'object' && !Array.isArray(value);
+
+export const loadPlannerData = (): PlannerStorageShape => {
   try {
-    const data = localStorage.getItem('ielts-planner-data');
-    return data ? JSON.parse(data) : {};
-  } catch (e) {
-    console.warn('Failed to load planner data from localStorage', e);
+    const raw = localStorage.getItem(PLANNER_STORAGE_KEY);
+    if (!raw) {
+      return {};
+    }
+
+    const parsed = JSON.parse(raw);
+    return isPlainObject(parsed) ? parsed : {};
+  } catch (error) {
+    console.warn('Failed to load planner data from localStorage', error);
     return {};
   }
 };
 
-export const savePlannerData = (data: Record<string, any>) => {
+export const savePlannerData = (data: PlannerStorageShape) => {
   try {
-    localStorage.setItem('ielts-planner-data', JSON.stringify(data));
-  } catch (e) {
-    console.error('Failed to save planner data to localStorage', e);
+    localStorage.setItem(PLANNER_STORAGE_KEY, JSON.stringify(data));
+  } catch (error) {
+    console.warn('Failed to save planner data to localStorage', error);
   }
 };
